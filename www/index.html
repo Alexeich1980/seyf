@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <!-- CSP. Тест/релиз-канал: единственная разрешённая исходящая сеть - канал OTA-обновлений
+       на домене Алексея (connect-src https://dorokhin-finance.ru), туда update.js GET-ит
+       манифест и zip веб-сборки. Сторовая сборка (RuStore, build-apk.js --store) в КОПИИ
+       www меняет это на connect-src 'none' (build-lib.js shipCsp): сеть закрыта целиком,
+       обновления только через RuStore. Vault наружу не уходит никогда.
+       Скрипты только свои (script-src 'self' - ловит XSS-инъекции), инлайн-стили
+       разрешены (мы задаём style.* из JS), картинки-сканы приходят data:/blob:,
+       module-воркер pdf.js — 'self' blob:. object/base отключены. Enforced мета-тегом,
+       а не только заголовком сервера. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'; connect-src https://dorokhin-finance.ru">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Сейф</title>
+  <!-- Иконка приложения — эмблема-дверь сейфа (единый источник vault-emblem.png: старт, триггер меню, «О приложении», лаунчер). -->
+  <link rel="icon" href="img/vault-emblem.png">
+  <link rel="apple-touch-icon" href="img/vault-emblem.png">
+  <!-- Шрифты тем — офлайн, self-hosted woff2 (latin+cyrillic). Внешняя сеть под запретом CSP. -->
+  <link rel="stylesheet" href="css/fonts.css">
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <main id="app">
+    <!-- Аккуратная минимальная заставка (#1): фон в теме + круглая иконка по центру. Держится
+         до системного запроса отпечатка, чтобы не мелькал «полуфабрикат» лок-экрана с формой.
+         Снимается по готовности (afterUnlock) или когда нужно показать поле мастер-пароля. -->
+    <div id="splash" class="splash hidden" aria-hidden="true">
+      <img class="splash-icon" src="img/vault-emblem.png" width="104" height="104" alt="">
+    </div>
+    <section id="lock" class="screen hidden">
+      <div class="lock-card">
+        <img class="lock-logo" src="img/vault-emblem.png" width="104" height="104" alt="">
+        <h1 class="brand">СЕЙФ</h1>
+        <form id="setup" class="hidden">
+          <p class="hint">Задайте мастер-пароль - длинную фразу. Это главный ключ и запасной вход.</p>
+          <input type="password" id="setupPw" placeholder="Мастер-пароль (фраза)" autocomplete="new-password">
+          <div id="setupStrength" class="setup-strength" hidden><span class="setup-strbar"><i></i></span><span class="setup-strlabel"></span></div>
+          <div id="setupConfirmRow"><input type="password" id="setupPw2" placeholder="Повторите мастер-пароль" autocomplete="new-password"></div>
+          <label class="setup-show"><input type="checkbox" id="setupShow"> Показать пароль</label>
+          <input type="text" id="setupHint" class="setup-hint-input" placeholder="Подсказка-напоминание (необязательно)" autocomplete="off" autocorrect="off" spellcheck="false" maxlength="200">
+          <p class="setup-hint-note">Подсказка хранится незашифрованной. Не пишите в неё сам пароль - только намёк.</p>
+          <div class="setup-warn">Мастер-пароль восстановить невозможно. Забудете - данные будут потеряны. Запишите его в надёжном месте.</div>
+          <label class="setup-accept" id="setupAcceptRow" hidden><input type="checkbox" id="setupAccept"> Пароль ненадёжный - принимаю на свою ответственность</label>
+          <label class="setup-accept setup-warnack"><input type="checkbox" id="setupWarnAck"> Понимаю: мастер-пароль восстановить нельзя</label>
+          <button type="submit">Создать сейф</button>
+        </form>
+        <div id="unlock" class="hidden">
+          <button id="helloBtn" class="hello hidden">Войти по биометрии</button>
+          <form id="pwForm">
+            <input type="password" id="unlockPw" placeholder="Мастер-пароль" autocomplete="current-password">
+            <button type="submit">Войти</button>
+          </form>
+          <button id="showHint" class="hint-link hidden" type="button">Показать подсказку</button>
+          <button id="pwFallback" class="pw-fallback hidden" type="button">Войти по мастер-паролю</button>
+          <p id="lockHint" class="lock-hint"></p>
+          <p id="lockError" class="error"></p>
+        </div>
+      </div>
+    </section>
+    <section id="shell" class="screen hidden"></section>
+    <p class="boot" id="boot">Загрузка…</p>
+  </main>
+
+  <!-- Выезжающее меню (drawer) по тапу на значок сейфа (спека 8b п.2), по образцу «Хомяка».
+       Живёт вне #shell — переживает перерисовку оболочки. Свайп-закрытие влево. -->
+  <div id="menuBg" hidden></div>
+  <nav id="menu" aria-hidden="true">
+    <div class="menu-head">
+      <span class="menu-app" id="menuApp" aria-hidden="true"></span>
+      <div class="menu-title">Сейф<span class="menu-ver" id="menuVer"></span></div>
+      <span class="menu-plan" id="menuPlan" hidden></span>
+      <button id="menuClose" class="menu-x ic-btn" type="button" aria-label="Закрыть меню"></button>
+    </div>
+    <div class="menu-body">
+      <div class="menu-sec">Настройки и данные</div>
+      <!-- Плитки-сетка 2 колонки (v3-визуал). Пары: [Вход | Сменить пароль] [Копия | Обновление]
+           [Тема | Разделы] [Полная версия | О приложении], последняя «Заблокировать» - на всю
+           ширину (9-я плитка нечётная -> правило симметрии :last-child:nth-child(odd) в CSS).
+           mi-s (длинные пояснения) остаются в DOM для updateMenuInfo, но скрыты в плиточном виде. -->
+      <div class="menu-list">
+        <button class="mi c-teal" id="mBio" type="button"><span class="mi-ic" data-ic="fingerprint"></span><span class="mi-t">Вход в приложение</span><span class="mi-s" id="mBioInfo"></span></button>
+        <button class="mi c-amber" id="mKey" type="button"><span class="mi-ic" data-ic="key"></span><span class="mi-t">Сменить мастер-пароль</span><span class="mi-s"></span></button>
+        <button class="mi c-green" id="mBackup" type="button"><span class="mi-ic" data-ic="archive"></span><span class="mi-t">Резервная копия</span><span class="mi-s">сохранить / восстановить</span></button>
+        <button class="mi c-blue" id="mUpdate" type="button"><span class="mi-ic" data-ic="refresh"></span><span class="mi-t">Обновление</span><span class="mi-s" id="mUpdateInfo"></span></button>
+        <button class="mi c-purple" id="mTheme" type="button"><span class="mi-ic mi-sw" id="mThemeSwatch" aria-hidden="true"></span><span class="mi-t">Тема оформления</span><span class="mi-s" id="mThemeInfo">Тёмная</span></button>
+        <button class="mi c-cyan" id="mSections" type="button"><span class="mi-ic" data-ic="grid"></span><span class="mi-t">Разделы на витрине</span><span class="mi-s" id="mSectionsInfo">показать / скрыть</span></button>
+        <button class="mi c-gold" id="mPro" type="button"><span class="mi-ic" data-ic="star"></span><span class="mi-t">Полная версия</span><span class="mi-s" id="mProInfo"></span></button>
+        <button class="mi c-grey" id="mAbout" type="button"><span class="mi-ic" data-ic="info"></span><span class="mi-t">О приложении</span><span class="mi-s">версия, автор</span></button>
+      </div>
+      <!-- «Заблокировать» вынесена ИЗ растянутой сетки плиток (1.2.16): сетка заполняет высоту, а
+           эта кнопка остаётся обычной высоты внизу (в сетке grid-auto-rows:1fr тянул её слишком высоко). -->
+      <button class="mi mi-lock" id="mLock" type="button"><span class="mi-ic" data-ic="lock"></span><span class="mi-t">Заблокировать</span><span class="mi-s">запереть сейф сейчас</span></button>
+    </div>
+  </nav>
+  <script src="version.js"></script>
+  <!-- buildflags.js — флаг доступа сборки (window.SEYF_FULL_ACCESS), читает access.js. Грузится
+       ДО app.js, чтобы флаг был готов к первой отрисовке. Генерируется сборкой (fail-closed). -->
+  <script src="buildflags.js"></script>
+  <script src="capacitor.js"></script>
+  <!-- boot.js — заслон от кирпича при бесшовном обновлении: грузится РАНО, до приложения,
+       откатывает не заведшуюся OTA-сборку. Пустой эффект, пока OTA не настроена. -->
+  <script src="boot.js"></script>
+  <script src="native.js"></script>
+  <!-- update.js — клиент OTA по образцу «Хомяка». Определяет window.Update (без авто-mount);
+       app.js задаёт window.SeyfUI и зовёт Update.mount(). Канал НАСТРОЕН на
+       dorokhin-finance.ru (см. update.js); домен уже разрешён в connect-src CSP выше. -->
+  <script src="update.js"></script>
+  <!-- jsQR: разбор QR-кодов в вебвью, чистый JS, без сервисов Google (вендор, офлайн) -->
+  <script src="vendor/jsQR.js"></script>
+  <!-- pdf.js (Mozilla, Apache-2.0) v4.10.38: ESM-сборка, грузится динамически из doc-viewer.js
+       (import vendor/pdf.min.js + module-воркер vendor/pdf.worker.min.js; расширение .js — чтобы
+       и локальный сервер Capacitor, и браузер отдавали её с JS-MIME). Классический global-скрипт
+       больше не нужен. Апгрейд с 3.11.174 закрывает CVE-2024-4367 (RCE). -->
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

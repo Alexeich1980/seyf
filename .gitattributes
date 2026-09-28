@@ -1,0 +1,13 @@
+# LF-заслон: тесты Сейфа требуют LF в исходниках (store-130, fixes-1225); без этого core.autocrlf=true вернёт CRLF при checkout
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.apk binary
+*.aar binary
+*.jar binary
+*.jks binary
+*.zip binary
+*.woff2 binary
+*.pdf binary
+*.ico binary
