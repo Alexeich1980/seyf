@@ -18,6 +18,7 @@ import { formatExpiryLive, normalizeExpiryInput, checkCardExpiry } from '../www/
 import { transparentFixedOffenders } from '../tools/css-overlay-guard.mjs';
 import { endOnlyMask, reformatWithCaret } from '../www/js/fieldinput.js';
 import * as Docs from '../www/js/documents.js';
+import { validateMasterChange, masterStrength } from '../www/js/onboarding.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..');
@@ -88,6 +89,8 @@ function changeMasterHarness(fsOpts, { concurrentSave = false } = {}) {
     requireRealVault: () => true,
     dlgPrompt: async () => prompts.shift(),
     dlgAlert: async (m) => { log.alerts.push(m); },
+    dlgConfirm: async () => true,   // ревью 27.09: согласие на слабый пароль (правило создания)
+    validateMasterChange, masterStrength,
     C: { unlockWithPassword: async () => true, rewrapPassword: async () => ({ ...NEW }) },
     state, store, withTimeout, serialSave, wrapOnDisk, saveErrorLabel,
     toast: (m) => { log.toasts.push(m); },

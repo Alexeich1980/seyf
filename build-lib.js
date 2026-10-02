@@ -449,3 +449,18 @@ export function pruneOldVersions(dir, keep) {
   }
   return removed.sort();
 }
+
+// ---- атомарная запись в out/ (исправление по code-review 27.09.2026) ----
+// Пишем во временный файл В ТОЙ ЖЕ папке и переименовываем: rename в пределах тома атомарен,
+// поэтому в out/ никогда не лежит «полузаписанный» zip/манифест, который publish-update.py мог
+// бы выложить. Упало посередине - временный файл удаляется, цель прежняя.
+export function writeFileAtomic(file, data) {
+  const tmp = path.join(path.dirname(file), '.' + path.basename(file) + '.tmp-' + process.pid);
+  try {
+    fs.writeFileSync(tmp, data);
+    fs.renameSync(tmp, file);
+  } catch (e) {
+    try { fs.unlinkSync(tmp); } catch (e2) { /* нечего убирать */ }
+    throw e;
+  }
+}

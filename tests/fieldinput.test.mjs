@@ -60,10 +60,12 @@ test('ПИН: 5-я цифра не входит (лимит 4)', () => {
   assert.equal(onlyDigits('123456789', 4), '1234');
 });
 
-test('CVV: лимит 3 цифры, буквы отброшены', () => {
+test('CVV: лимит 4 цифры (Amex), буквы отброшены', () => {
   const cvvMask = liveMaskFor('cards', 'cvv');
-  assert.equal(cvvMask('1234'), '123');
-  assert.equal(cvvMask('9a9a9a9'), '999');
+  assert.equal(cvvMask('123'), '123');
+  assert.equal(cvvMask('1234'), '1234', 'Amex: 4-значный код не обрезается');
+  assert.equal(cvvMask('12345'), '1234');
+  assert.equal(cvvMask('9a9a9a9'), '9999');
 });
 
 // --- п.8 strip пробелов в URL (мутационный инвариант) ---
@@ -101,7 +103,7 @@ test('имя владельца: хвостовой одиночный проб�
 test('fieldInputProps: номерные → numeric, URL → url, лимиты ПИН/CVV', () => {
   assert.equal(fieldInputProps('cards', 'number').inputMode, 'numeric');
   assert.equal(fieldInputProps('cards', 'expiry').inputMode, 'numeric');
-  assert.equal(fieldInputProps('cards', 'cvv').maxLength, 3);
+  assert.equal(fieldInputProps('cards', 'cvv').maxLength, 4);   // Amex - 4 цифры
   assert.equal(fieldInputProps('cards', 'pin').maxLength, 4);
   assert.equal(fieldInputProps('cards', 'holder').lang, 'en');
   assert.equal(fieldInputProps('passwords', 'url').inputMode, 'url');

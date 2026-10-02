@@ -22,7 +22,7 @@ import { computeAccess, runPurchase, autoRestorePro } from './pay.js';
 import { createClipboardGuard, copyNeedsGuard, makeClipFlag, waitForFocus, clearAfterReload } from './clipboard.js';
 import { DEFAULT_THEME, THEME_LABELS, normalizeTheme, nextTheme, themeSwatchIcon } from './theme.js';
 import * as Demo from './demo.js';
-import { decideStart, confirmVisible, masterStrength, validateMasterCreation } from './onboarding.js';
+import { decideStart, confirmVisible, masterStrength, validateMasterCreation, validateMasterChange } from './onboarding.js';
 import { icon, eyeIconName, swipeCloses } from './icons.js';
 import { displayOrder, arrowState, moveWithinGroup } from './listorder.js';
 import { SAVE_TIMEOUT_MS, makeSerialSaver, saveErrorLabel, closeThenPersist, withTimeout, drainQueue, DRAIN_MS, drainWithRetry, withIdleTimeout, makeSharedLoader, wrapOnDisk } from './persist.js';
@@ -1797,9 +1797,17 @@ async function doChangeMaster() {
   catch { await dlgAlert('Неверный текущий пароль. Мастер-пароль не изменён.'); return; }
   const p1 = await dlgPrompt('Новый мастер-пароль (длинная фраза):', { title: 'Смена мастер-пароля', password: true, placeholder: 'Новый пароль', ok: 'Далее' });
   if (!p1) return;
-  if (p1.length < 8) { await dlgAlert('Слишком короткая фраза - минимум 8 символов, лучше длиннее.'); return; }
   const p2 = await dlgPrompt('Повторите новый мастер-пароль:', { title: 'Смена мастер-пароля', password: true, placeholder: 'Ещё раз', ok: 'Сменить' });
-  if (p2 !== p1) { await dlgAlert('Пароли не совпадают.'); return; }
+  if (p2 === null) return;
+  // Ревью 27.09: то же правило, что при создании сейфа (спека 8d) - без жёсткого минимума,
+  // слабый пароль только с явным согласием (validateMasterChange = validateMasterCreation).
+  let v = validateMasterChange(p1, p2, false);
+  if (!v.ok && v.weak) {
+    const accept = await dlgConfirm('Новый пароль ' + masterStrength(p1).label + ': его проще подобрать. Принять его на свою ответственность?', { title: 'Слабый пароль', ok: 'Принять', cancel: 'Назад' });
+    if (!accept) return;
+    v = validateMasterChange(p1, p2, true);
+  }
+  if (!v.ok) { await dlgAlert(v.error); return; }
   // A9: сбой перешифровки/записи не молчит. Если запись не удалась - возвращаем в памяти прежнюю
   // обёртку ключа: иначе следующая обычная запись молча унесла бы на диск пароль, про который
   // пользователю сказали «не изменён».

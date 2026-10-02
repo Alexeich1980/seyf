@@ -65,13 +65,22 @@ test('I3: в openAbout нет почты, сайт dorokhin-finance.ru на ме
   assert.ok(body.includes('<span class="about-link-t">dorokhin-finance.ru</span>'), 'нет подписи сайта');
 });
 
-test('1.3.1: версия package.json и верхний раздел CHANGELOG, «—» в заметках нет', () => {
+// Не зависит от точной версии: следующее повышение (1.3.2, 1.4.0...) тест не ломает. Держим, что
+// раздел 1.3.1 существует, стоит выше 1.3.0, содержит строки про документы и почту, а версия
+// package.json не ниже 1.3.1 (документы в «О приложении» есть во всех версиях начиная с неё).
+test('раздел 1.3.1 в CHANGELOG (документы, почта), версия не ниже 1.3.1, «—» в заметках нет', () => {
   const ROOT = path.join(HERE, '..');
-  assert.equal(JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version, '1.3.1');
+  const ver = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version;
+  const n = ver.split('.').map(Number);
+  assert.ok(n[0] * 1e6 + n[1] * 1e3 + n[2] >= 1 * 1e6 + 3 * 1e3 + 1, 'версия package.json ' + ver + ' ниже 1.3.1');
   const log = fs.readFileSync(path.join(ROOT, 'CHANGELOG.md'), 'utf8');
-  const top = log.slice(log.indexOf('## 1.3.1'), log.indexOf('## 1.3.0'));
-  assert.ok(log.indexOf('## 1.3.1') >= 0 && log.indexOf('## 1.3.1') < log.indexOf('## 1.3.0'));
-  assert.match(top, /Политик[а-я]* конфиденциальности/);
-  assert.match(top, /почт/i, 'в 1.3.1 нет строки про убранную почту');
-  assert.ok(!top.includes('—'));
+  const i131 = log.search(/^## 1\.3\.1(?![\d.])/m);
+  const i130 = log.search(/^## 1\.3\.0(?![\d.])/m);
+  assert.ok(i131 >= 0, 'нет раздела 1.3.1');
+  assert.ok(i130 > i131, 'раздел 1.3.1 должен стоять выше 1.3.0');
+  const sec = log.slice(i131, i130);
+  assert.match(sec, /Политик[а-я]* конфиденциальности/);
+  assert.match(sec, /Пользовательское соглашение/);
+  assert.match(sec, /почт/i, 'в 1.3.1 нет строки про убранную почту');
+  assert.ok(!sec.includes('—'));
 });

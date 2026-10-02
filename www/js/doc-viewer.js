@@ -58,6 +58,28 @@ function bindClose(back, onClose) {
   return () => document.removeEventListener('keydown', onKey, true);
 }
 
+// Загрузка PDF с проверкой «просмотрщик уже закрыт» (ревью 27.09). Если окно закрыли, пока PDF
+// грузился, документ сразу уничтожаем (раньше клался в pdfDocs и расшифрованный скан висел в памяти).
+export async function loadPdfDoc(lib, bytes, isClosed) {
+  const doc = await lib.getDocument(pdfLoadOptions(bytes)).promise;
+  if (isClosed()) { try { await doc.destroy(); } catch (e) {} return null; }
+  return doc;
+}
+export async function countPdfPages(lib, pages, pdfDocs, counts, isClosed) {
+  for (const p of pages) {
+    if (isClosed()) return false;
+    if (p.mime !== 'application/pdf') continue;
+    if (!lib) { counts[p.id] = 1; continue; }
+    try {
+      const doc = await loadPdfDoc(lib, D.unb64(p.data), isClosed);
+      if (!doc) return false;
+      pdfDocs.set(p.id, doc);
+      counts[p.id] = doc.numPages;
+    } catch (e) { counts[p.id] = 1; }
+  }
+  return !isClosed();
+}
+
 // Вписать натуральный размер в сцену (contain), не растягивая свыше сцены при scale=1.
 function fitContain(natW, natH, stageW, stageH) {
   if (!natW || !natH) return { w: stageW, h: stageH };
@@ -194,7 +216,7 @@ export function openDocViewer(entry, options = {}) {
     if (fr.mime === 'application/pdf') {
       const canvas = document.createElement('canvas');
       content.appendChild(canvas);
-      await renderPdfFrame(canvas, page, fr.sub, stage, pdfDocs, zp);
+      await renderPdfFrame(canvas, page, fr.sub, stage, pdfDocs, zp, () => closed);
     } else {
       const img = document.createElement('img');
       img.className = 'dv-img';
@@ -236,28 +258,25 @@ export function openDocViewer(entry, options = {}) {
   // Посчитать страницы PDF (для навигации) до построения кадров.
   (async () => {
     const lib = await pdfLib();
-    for (const p of pages) {
-      if (p.mime !== 'application/pdf') continue;
-      if (!lib) { counts[p.id] = 1; continue; }
-      try {
-        const doc = await lib.getDocument(pdfLoadOptions(D.unb64(p.data))).promise;
-        pdfDocs.set(p.id, doc);
-        counts[p.id] = doc.numPages;
-      } catch (e) { counts[p.id] = 1; }
-    }
-    if (closed) return;
+    if (!(await countPdfPages(lib, pages, pdfDocs, counts, () => closed))) return;
     frames = D.buildFrames(pages, counts);
     if (!frames.length) { content.innerHTML = '<p class="dv-msg">В документе пока нет страниц.</p>'; countEl.textContent = '0 / 0'; return; }
     showFrame();
   })();
 }
 
-async function renderPdfFrame(canvas, page, sub, stage, pdfDocs, zp) {
-  const lib = await pdfLib();
+export async function renderPdfFrame(canvas, page, sub, stage, pdfDocs, zp, isClosed = () => false, libArg) {
+  const lib = libArg !== undefined ? libArg : await pdfLib();
+  if (isClosed()) return;
   if (!lib) { canvas.replaceWith(msg('Просмотр PDF недоступен на этом устройстве.')); return; }
   try {
     let doc = pdfDocs.get(page.id);
-    if (!doc) { doc = await lib.getDocument(pdfLoadOptions(D.unb64(page.data))).promise; pdfDocs.set(page.id, doc); }
+    if (!doc) {
+      doc = await loadPdfDoc(lib, D.unb64(page.data), isClosed);   // закрыли по ходу - уже уничтожен
+      if (!doc) return;
+      pdfDocs.set(page.id, doc);
+    }
+    if (isClosed()) return;
     const pdfPage = await doc.getPage(sub + 1);
     const base = pdfPage.getViewport({ scale: 1 });
     const fit = fitContain(base.width, base.height, stage.clientWidth, stage.clientHeight);
@@ -431,7 +450,11 @@ export function openCropEditor(dataUrl) {
 // системное окно (app.js держит на нём флаг «системное окно», чтобы уход в фон не запирал сейф);
 // обработка с окном обрезки - отдельно (cameraFileToPage / filesToPages), уже БЕЗ этого флага:
 // иначе, пока открыто наше окно обрезки, автоблок не срабатывал вовсе (уход в фон на часы).
-export function chooseFiles({ camera = false } = {}) {
+// Ревью 27.09: отмену узнаём по 'cancel' у input; таймер после возврата фокуса - только страховка
+// (PICK_SAFETY_MS, было 400/800 мс - медленные файлы из облака терялись молча). Поздний change
+// после страховки не теряется: файлы уходят в onLate, если он передан.
+export const PICK_SAFETY_MS = 10000;
+export function chooseFiles({ camera = false, onLate = null, safetyMs = PICK_SAFETY_MS } = {}) {
   return new Promise((resolve) => {
     const input = document.createElement('input');
     input.type = 'file';
@@ -445,12 +468,17 @@ export function chooseFiles({ camera = false } = {}) {
     input.style.display = 'none';
     let settled = false;
     const finish = (files) => { if (settled) return; settled = true; input.remove(); resolve(files); };
-    input.onchange = () => finish(Array.from(input.files || []));
+    input.onchange = () => {
+      const files = Array.from(input.files || []);
+      if (settled) { try { input.remove(); } catch (e) {} if (files.length && typeof onLate === 'function') onLate(files); return; }
+      finish(files);
+    };
     input.addEventListener('cancel', () => finish([]));
     // Пользователь мог закрыть окно без выбора - не подвешиваем промис.
     window.addEventListener('focus', function onFocus() {
       window.removeEventListener('focus', onFocus);
-      setTimeout(() => { if (!settled && !(input.files && input.files.length)) finish([]); }, camera ? 800 : 400);
+      // input не удаляем при страховке: поздний change ещё может прийти (onLate).
+      setTimeout(() => { if (!settled && !(input.files && input.files.length)) { settled = true; resolve([]); } }, safetyMs);
     });
     document.body.appendChild(input);
     input.click();

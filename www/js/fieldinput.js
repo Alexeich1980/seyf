@@ -56,14 +56,14 @@ export function latinOnly(v) {
 }
 
 // Атрибуты клавиатуры/ввода по (section,key). Отсутствие записи → поле без спецатрибутов.
-// maxLength: ПИН 4, CVV 3, срок 5 (ММ/ГГ), номер карты 23 (19 цифр + 4 пробела-разделителя).
+// maxLength: ПИН 4, CVV 4 (обычно 3, у Amex 4), срок 5 (ММ/ГГ), номер карты 23 (19 цифр + 4 пробела-разделителя).
 const PROPS = {
   cards: {
     number:  { inputMode: 'numeric', pattern: '[0-9 ]*', maxLength: 23, autocomplete: 'off' },
     holder:  { lang: 'en', autocapitalize: 'characters', autocomplete: 'off' },
     // maxLength 7 (C4): вставка «12/2029» не обрезается браузером до «12/20»; маска сводит к ММ/ГГ.
     expiry:  { inputMode: 'numeric', pattern: '[0-9/]*', maxLength: 7, autocomplete: 'off' },
-    cvv:     { inputMode: 'numeric', pattern: '[0-9]*', maxLength: 3, autocomplete: 'off' },
+    cvv:     { inputMode: 'numeric', pattern: '[0-9]*', maxLength: 4, autocomplete: 'off' },   // 3 цифры, у Amex 4 (CID)
     pin:     { inputMode: 'numeric', pattern: '[0-9]*', maxLength: 4, autocomplete: 'off' },
   },
   passwords: {
@@ -129,7 +129,7 @@ export function defaultMaxLength(tagName, hasExplicit) {
 export function liveMaskFor(section, key) {
   if (section === 'cards') {
     if (key === 'number') return formatCardNumber;
-    if (key === 'cvv') return (v) => onlyDigits(v, 3);
+    if (key === 'cvv') return (v) => onlyDigits(v, 4);   // Amex: 4 цифры
     if (key === 'pin') return (v) => onlyDigits(v, 4);
     // expiry маскируется formatExpiry (cardexp.js) — там уже есть авто-слэш.
   }
