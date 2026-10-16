@@ -55,7 +55,8 @@ test('п.12: haptic на сохранении, удалении, копиров�
   assert.ok(/toast\('Скопировано'\);\s*haptic\('light'\)/.test(APP), 'нет haptic на copyPlain');
   assert.ok(/буфер очистится[^']*'\);\s*haptic\('light'\)/.test(APP), 'нет haptic на copySecret');
   // сохранение записи (успех)
-  assert.ok(/onSaved: \(\) => haptic\('light'\),\s*\/\/ п\.12/.test(APP), 'нет haptic на успешном сохранении записи');
+  // 1.3.2: onSaved стал блоком (после отклика - окно оценки review.afterSave), haptic - первым
+  assert.ok(/onSaved: \(\) => \{\s*haptic\('light'\);\s*\/\/ п\.12/.test(APP), 'нет haptic на успешном сохранении записи');
   // удаление (заметнее - medium), минимум два места удаления
   assert.ok(/Store\.deleteEntry\(state\.vault, section, entry\.id\);\s*haptic\('medium'\);/.test(APP), 'нет haptic(medium) на удалении');
   // разблокировка сейфа

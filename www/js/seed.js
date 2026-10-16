@@ -58,8 +58,37 @@ export function seedLengthChangeIsDirty(filledWordCount) {
   return Number(filledWordCount) > 0;
 }
 
-// --- баннер-предупреждение: запоминаем нажатие «Понял, принял», больше не всплывает ---
+// --- баннер-предупреждение «Подумайте дважды» ---
+// 1.3.2 (решение Алексея 16.10.2026): баннер показывается при КАЖДОМ входе в раздел, пока не отмечена
+// галочка «Больше не показывать». «Понятно» без галочки прячет его только до следующего входа в раздел.
+// Ключ прежний: кто в старой версии нажал «Понял, принял» (seyf_seed_banner_dismissed=1), считается
+// отметившим «больше не показывать» - баннер к нему не вернётся.
 export const SEED_BANNER_KEY = 'seyf_seed_banner_dismissed';
+
+// Виден ли баннер: hiddenThisVisit - «Понятно» без галочки в этом заходе в раздел.
+export function seedBannerVisible(storage, { hiddenThisVisit = false, query = '' } = {}) {
+  if (String(query || '').trim()) return false;   // в результатах поиска баннера нет
+  if (hiddenThisVisit) return false;
+  return !isSeedBannerDismissed(storage);
+}
+// «Понятно»: с галочкой - навсегда (ключ), без - только до следующего входа (решает вызывающий).
+export function seedBannerOk(storage, neverAgain) {
+  if (neverAgain) dismissSeedBanner(storage);
+  return { hiddenThisVisit: true };
+}
+
+// --- короткое напоминание при сохранении ПЕРВОЙ seed-фразы (1.3.2) ---
+// Один раз: новая запись, в разделе стала ровно одна фраза, напоминания ещё не было.
+export const SEED_FIRST_KEY = 'seyf_seed_first_reminded';
+export const SEED_FIRST_TITLE = 'Seed-фраза сохранена';
+export const SEED_FIRST_TEXT = 'Сохраните её ещё и на бумаге в надёжном месте. Если телефон пропадёт, а резервной копии сейфа не будет, доступ к криптоактивам восстановить не получится.';
+export function firstSeedReminderDue(storage, { isNew, seedCount } = {}) {
+  if (!isNew || Number(seedCount) !== 1) return false;
+  try { return !(storage && storage.getItem(SEED_FIRST_KEY) === '1'); } catch { return true; }
+}
+export function markFirstSeedReminded(storage) {
+  try { if (storage) storage.setItem(SEED_FIRST_KEY, '1'); } catch { /* не критично */ }
+}
 
 export function isSeedBannerDismissed(storage) {
   try {

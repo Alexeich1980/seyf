@@ -8,7 +8,9 @@
    build-apk.js --store; решение Алексея 1.3.0): обновления ТОЛЬКО через RuStore. Свой канал
    выключен ЦЕЛИКОМ: ни манифеста, ни zip, ни APK - в сеть update.js не ходит вообще
    (check/silentCheck/weeklyCheck/fetchManifest/fetchBundle/apply отказываются на входе,
-   до любого fetch). Пункт меню «Обновление» честно говорит, что версию обновляет RuStore.
+   до любого fetch). С 1.3.2 «Обновление» в сторе работает через RuStore App Update SDK
+   (www/storeupdate.js + нативный RuStoreUpdatePlugin): проверку и установку делает приложение
+   RuStore на телефоне, свой канал по-прежнему выключен.
    Вдобавок в сторовом index.html CSP connect-src 'none' (build-lib.js shipCsp) - даже
    случайный fetch наружу браузер не выпустит. Ниже описан не-сторовый путь (тест-канал).
 
@@ -505,7 +507,17 @@
   // до первого нажатия «Проверить» тут пусто, и меню молчит.
   var newerVer = '';
 
-  function newer() { return newerVer; }
+  function newer() {
+    // Стор (1.3.2): «есть новее» знает RuStore App Update SDK (storeupdate.js), свой канал молчит.
+    if (isStore()) { var S = storeMod(); return (S && S.getNewer()) ? 'RuStore' : ''; }
+    return newerVer;
+  }
+
+  // Модуль обновления через RuStore SDK (www/storeupdate.js, грузится до update.js). Нет модуля
+  // (старая копия www) - стор показывает прежнее честное окно dlgStoreInfo.
+  function storeMod() {
+    try { return (typeof window !== 'undefined' && window.StoreUpdate && typeof window.StoreUpdate.view === 'function') ? window.StoreUpdate : null; } catch (e) { return null; }
+  }
 
   function ver() { return String((typeof window !== 'undefined' && window.APP_VERSION) || '0'); }
   // Номер ОБОЛОЧКИ или null, если Android ещё не ответил. Подставлять сюда версию
@@ -711,6 +723,83 @@
     });
   }
 
+  // Стор-сборка 1.3.2: окно «Обновление» через RuStore App Update SDK (образец «Карта года»).
+  // Проверка - по кнопке «Проверить» (и тихо раз в неделю при запуске, storeMount); нашлась новее -
+  // «Обновить» открывает окно обновления RuStore (или карточку приложения в RuStore). Своего CDN нет:
+  // спрашивает установленное приложение RuStore, CSP connect-src 'none' остаётся.
+  var storeLast = null, storeChecking = false, storeLaunch = null;
+  // окно открыто сейчас? (закрыли кнопкой, фоном или «назад» - перерисовка его не воскрешает)
+  function storeShown() {
+    try { return !!(typeof document !== 'undefined' && document.querySelector && document.querySelector('#updStore')); } catch (e) { return false; }
+  }
+  function storeLauncher(S) {
+    if (storeLaunch) return storeLaunch;
+    storeLaunch = S.launcher(function (which) {
+      var ext = function (u) { if (UI && UI.openExternal) UI.openExternal(u); };
+      return which === 'open' ? S.openStore(null, ext) : S.startUpdate(null, ext);
+    }, { onChange: function () { if (storeShown()) dlgStore(); } });
+    return storeLaunch;
+  }
+  function closeStoreDlg() {
+    if (typeof document === 'undefined' || !document.querySelectorAll) return;
+    try {
+      var els = document.querySelectorAll('#updStore');
+      for (var i = 0; i < els.length; i++) {
+        var back = els[i].closest ? els[i].closest('.modal-back') : null;
+        if (back && back.remove) back.remove();
+      }
+    } catch (e) {}
+  }
+  function dlgStore() {
+    var S = storeMod();
+    if (!UI || !S) return;
+    var L = storeLauncher(S);
+    var v = S.view({ has: !!S.getNewer(), checking: storeChecking, launching: L.busy(), last: storeLast });
+    var LABEL = { close: v.buttons.length > 1 ? 'Закрыть' : 'Понятно', check: 'Проверить', update: 'Обновить', open: 'Открыть RuStore' };
+    var btns = v.buttons.map(function (id) {
+      // «Проверить» рядом с «Обновить»/«Открыть RuStore» - второстепенная (одна главная кнопка в окне)
+      var second = id === 'check' && v.buttons.length > 2;
+      var b = { label: LABEL[id], cls: id === 'close' ? (v.buttons.length > 1 ? 'ghost' : 'primary') : (second ? 'neutral' : 'primary') };
+      if (id === 'check') b.onClick = function () { storeCheck(); return false; };
+      if (id === 'update' || id === 'open') b.onClick = function () { L.run(id); return false; };
+      return b;
+    });
+    closeStoreDlg();
+    UI.openDlg({
+      title: 'Обновление',
+      body: box(
+        '<p id="updStore">Установлена версия ' + UI.esc(verLine()) + '.</p>' +
+        '<p class="upd-hint">' + UI.esc(v.status) + '</p>' +
+        '<p class="upd-hint">Обновление скачивает и ставит RuStore, само приложение в интернет не ходит.</p>'
+      ),
+      buttons: btns
+    });
+  }
+  function storeCheck() {
+    var S = storeMod();
+    if (!S || storeChecking) return Promise.resolve(null);
+    storeChecking = true;
+    if (storeShown()) dlgStore();
+    return S.check().then(function (d) {
+      storeChecking = false;
+      storeLast = d;
+      if (UI && UI.renderMenu) UI.renderMenu();
+      if (storeShown()) dlgStore();
+      return d;
+    }, function () { storeChecking = false; if (storeShown()) dlgStore(); return null; });
+  }
+  // при запуске: уже обновились - точка гаснет; раз в неделю тихо спросить RuStore
+  function storeMount() {
+    var S = storeMod();
+    if (!S) return;
+    var shell = (typeof window !== 'undefined' && window.SHELL_READY && typeof window.SHELL_READY.then === 'function') ? window.SHELL_READY : Promise.resolve(null);
+    Promise.resolve(shell).catch(function () { return null; }).then(function () {
+      try { S.syncNewer(typeof window !== 'undefined' ? window.SHELL_BUILD : 0); } catch (e) {}
+      if (UI && UI.renderMenu) UI.renderMenu();
+      return S.weeklyCheck();
+    }).then(function (d) { if (d && UI && UI.renderMenu) UI.renderMenu(); }).catch(function () {});
+  }
+
   function dlgFail(msg) {
     UI.openDlg({
       title: 'Обновление',
@@ -742,7 +831,10 @@
   // opts прокидываются в fetchManifest — так self-test подсовывает свой fetch
   function check(opts) {
     if (busy) return Promise.resolve(null);
-    if (isStore()) { dlgStoreInfo(); return Promise.resolve(null); }   // стор: без сети, только RuStore
+    if (isStore()) {   // стор: без своей сети, только RuStore (SDK), без модуля - честное окно
+      if (storeMod()) { storeLast = null; dlgStore(); return storeCheck().then(function () { return null; }); }
+      dlgStoreInfo(); return Promise.resolve(null);
+    }
     if (!otaConfigured() && !(opts && opts.fetch)) { dlgNotConfigured(); return Promise.resolve(null); }
     busy = true;
     dlgWait();
@@ -1172,7 +1264,9 @@
 
   function open() {
     if (busy) return;
-    if (isStore()) { dlgStoreInfo(); return; }   // стор: честно - обновления через RuStore
+    // стор: обновления через RuStore. Новое окно - без статуса прошлой проверки (как «Карта года»):
+    // человек мог за это время войти в RuStore, и старое «Войдите в RuStore» сбивало бы с толку.
+    if (isStore()) { if (storeMod()) { storeLast = null; dlgStore(); } else dlgStoreInfo(); return; }
     dlgInstalled();
   }
 
@@ -1244,6 +1338,7 @@
     // Кнопку меню «Обновление» биндит сам app.js (bindMenuOnce → Update.open) — тут не дублируем.
     guardStaleWww();   // как можно раньше: старую OTA-папку после переустановки APK сбросить на ассеты
     armConfirm();
+    if (isStore()) storeMount();   // стор: раз в неделю тихо спросить RuStore (SDK), без своей сети
     weeklyCheck();   // раз в неделю тихо проверить и подсветить иконку, если есть обновление (если канал настроен)
   }
 

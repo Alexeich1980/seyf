@@ -63,6 +63,16 @@
         </provider>
     </application>
 
+    <!-- 1.3.2: Android 11+ без этого приложение не «видит» установленный RuStore (проверка обновления,
+         переход в карточку магазина - RuStoreUpdatePlugin.java; окно оценки - RuStoreReviewPlugin.java). -->
+    <queries>
+        <package android:name="ru.vk.store" />
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="rustore" />
+        </intent>
+    </queries>
+
     <!-- Permissions. INTERNET: нужен RuStore Pay SDK (покупка и проверка покупки идут через
          RuStore) и WebView (локальная раздача ассетов по https://localhost). Данные сейфа
          наружу не уходят; в сторовой сборке сам веб-слой в сеть не ходит (CSP connect-src 'none').

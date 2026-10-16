@@ -21,8 +21,11 @@ allprojects {
     repositories {
         google()
         mavenCentral()
-        // RuStore Pay SDK (платежи): SDK лежит в maven-репозитории RuStore, не в mavenCentral.
-        maven { url 'https://artifactory-external.vkpartner.ru/artifactory/maven' }
+        // RuStore SDK (Pay - оплата, App Update - обновления, 1.3.2) лежит в maven-репозитории RuStore,
+        // не в mavenCentral. Единственный актуальный хост - nexus-external.rustore.ru (как в «Карте года»;
+        // старый artifactory-external.vkpartner.ru перестал работать с 01.10.2026: appupdate с него не
+        // скачивался, pay собирался только из кэша Gradle).
+        maven { url 'https://nexus-external.rustore.ru/repository/maven-rustore-exposed' }
     }
 }
 

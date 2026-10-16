@@ -28,8 +28,8 @@ android {
         applicationId "ru.dorokhin.seyf"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 20603
-        versionName "1.3.1"
+        versionCode 20605
+        versionName "1.3.2"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         // Стор-сборка (build-apk.js --store передаёт -PseyfStore=true): MainActivity на старте
         // забывает путь к скачанной веб-сборке - код меняется только через RuStore (1.3.0).
@@ -74,6 +74,12 @@ dependencies {
     // Тянется из maven RuStore (репозиторий добавлен в android/build.gradle).
     implementation platform('ru.rustore.sdk:bom:2026.08.01')
     implementation 'ru.rustore.sdk:pay'
+    // RuStore App Update SDK (1.3.2) - обновления стор-сборки через RuStore (RuStoreUpdatePlugin.java,
+    // www/storeupdate.js). Тот же BOM, что у «Карты года» (проверено вживую 15.10.2026).
+    implementation 'ru.rustore.sdk:appupdate'
+    // RuStore Review SDK (1.3.2) - окно оценки (RuStoreReviewPlugin.java, www/js/review.js), как в «Карте
+    // года»/«Хомяке». Разрешений не добавляет (в манифесте SDK только <queries> к RuStore).
+    implementation 'ru.rustore.sdk:review'
 }
 
 apply from: 'capacitor.build.gradle'

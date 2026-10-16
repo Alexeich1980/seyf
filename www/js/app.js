@@ -6,7 +6,7 @@ import { defaultStore } from './storage.js';
 import * as Auth from './auth.js';
 import { createAutoLock, resumeDecision, foregroundDecision } from './autolock.js';
 import { getHintParagraphs } from './hints.js';
-import { validateSeedPhrase, parseSeedWords, SEED_LENGTHS, isSeedBannerDismissed, dismissSeedBanner, seedLengthChangeIsDirty, seedWordValid, invalidSeedWords } from './seed.js';
+import { validateSeedPhrase, parseSeedWords, SEED_LENGTHS, seedBannerVisible, seedBannerOk, firstSeedReminderDue, markFirstSeedReminded, SEED_FIRST_TITLE, SEED_FIRST_TEXT, seedLengthChangeIsDirty, seedWordValid, invalidSeedWords } from './seed.js';
 import { normalizeFieldValue, checkRequisite, hasRequisiteNorm } from './fieldnorm.js';
 import { formatExpiry, formatExpiryLive, normalizeExpiryInput, checkCardExpiry } from './cardexp.js';
 import { fieldInputProps, liveMaskFor, liveMaskSig, latinOnly, cardNumberValid, groupDigits, defaultMaxLength, INPUT_LIMITS, reformatWithCaret, endOnlyMask, endOnlyMaskField, SECRET_INPUT_ATTRS, editorInputType } from './fieldinput.js';
@@ -42,6 +42,8 @@ import { verifyLicense } from './license.js';
 import { SEED_NETWORKS, isKnownNetwork } from './seed-networks.js';
 import { buildRequisitesShareText } from './share.js';
 import { cardOpenMode, nextExpanded, expandActions } from './carddetail.js';
+import { createReview } from './review.js';
+import { shouldOnboard, markOnboarded, ONBOARD_POINTERS, ONBOARD_ITEMS, ONBOARD_TITLE, ONBOARD_LEAD, ONBOARD_DONE } from './onboard.js';
 
 // Единый охранник буфера обмена: копирование секрета + очистка по TTL и при блокировке.
 // 1.2.24 (п.1): флаг «буфер надо очистить» переживает перезагрузку при блокировке (секрет туда не
@@ -413,8 +415,10 @@ function showHint(section) {
 }
 
 // Баннер-предупреждение раздела Seed-фраз — в гамме приложения (не нативный alert).
-// Сворачивается кнопкой «Понял, принял», состояние запоминается (повторно не всплывает).
 // Текст — дословно из спеки 4.2 (расширенный, утверждён Алексеем).
+// 1.3.2: показывается при каждом входе в раздел; «Понятно» прячет до следующего входа, с галочкой
+// «Больше не показывать» - навсегда (seed.js seedBannerOk). seedBannerHidden сбрасывает enterSection.
+let seedBannerHidden = false;
 function renderSeedBanner() {
   const b = document.createElement('div');
   b.className = 'seed-banner';
@@ -423,8 +427,15 @@ function renderSeedBanner() {
     <p>Мы не рекомендуем хранить seed-фразу в памяти телефона - даже в зашифрованном виде. Телефон можно потерять, разбить или заразить, а seed-фраза - это полный доступ к вашим криптоактивам без возможности восстановления.</p>
     <p>Надёжнее всего - <strong>бумажный носитель в защищённом месте</strong> (домашний сейф, банковская ячейка). В идеале - две копии в разных местах.</p>
     <p>Если всё же храните здесь - это ваш осознанный выбор и ответственность.</p>
-    <div class="seed-banner-actions"><button type="button" class="seed-banner-ok">Понял, принял</button></div>`;
-  b.querySelector('.seed-banner-ok').onclick = () => { dismissSeedBanner(window.localStorage); b.remove(); };
+    <div class="seed-banner-actions">
+      <label class="seed-banner-never"><input type="checkbox" class="seed-banner-chk"> Больше не показывать</label>
+      <button type="button" class="seed-banner-ok">Понятно</button>
+    </div>`;
+  b.querySelector('.seed-banner-ok').onclick = () => {
+    const never = !!b.querySelector('.seed-banner-chk').checked;
+    seedBannerHidden = seedBannerOk(lsGet(), never).hiddenThisVisit;
+    b.remove();
+  };
   return b;
 }
 
@@ -967,7 +978,28 @@ function showSplash() { const s = $('#splash'); if (s) s.classList.remove('hidde
 function hideSplash() { const s = $('#splash'); if (s) s.classList.add('hidden'); }
 
 // ---------- вход ----------
+// Окно оценки RuStore (1.3.2, review.js): только стор-сборка, сразу после удачного сохранения новой
+// записи, когда 7-й день пользования И 10-я запись; после ответа повтор не раньше чем через 60 дней,
+// всего не больше двух окон. Ни при запуске, ни на экране входа, ни
+// поверх окна или меню: busy() это проверяет ещё раз в момент показа (через REVIEW_DELAY).
+const review = createReview({
+  access: { STORE: Access.STORE },
+  plugin: (() => { try { return (window.isNativeApp && window.isNativeApp() && window.NativePlugins && window.NativePlugins.RuStoreReview) || null; } catch (e) { return null; } })(),
+  storage: lsGet(),
+  getVault: () => state.vault,
+  busy: () => {
+    if (!state.vault || state.demoMode) return true;
+    const lock = document.querySelector('#lock');
+    if (lock && !lock.classList.contains('hidden')) return true;
+    if (document.querySelector('.modal-back')) return true;
+    const bg = document.querySelector('#menuBg');
+    return !!(bg && !bg.hidden);
+  },
+  visible: () => document.visibilityState === 'visible',
+});
+
 async function boot() {
+  try { review.launched(); } catch (e) {}   // отметка первого запуска (дни пользования)
   cleanupCameraTemp();   // B2: остатки фото камеры (JPEG_*.jpg во внешней папке приложения)
   // 1.2.20: битый файл хранилища (VAULT_CORRUPT) - НЕ «сейфа нет». Не уходим в демо/создание
   // (они бы перезаписали данные), а ведём к восстановлению из резервной копии.
@@ -1343,8 +1375,51 @@ async function onSetupInner() {
   $('#setupPw').value = ''; $('#setupPw2').value = '';
   if (hintEl) hintEl.value = '';
   await afterUnlock(res, { offerBio: true });   // мягкое предложение включить биометрию - только после создания
+  // 1.3.2: знакомство с кнопками - один раз, сразу после создания сейфа (onboard.js). Ждём «Понятно».
+  if (shouldOnboard(lsGet(), { justCreated: true })) await openOnboard();
   // Пользователь пришёл из демо, пытаясь что-то добавить/править — открываем это сразу.
   if (typeof pendingReopen === 'function') { const r = pendingReopen; pendingReopen = null; r(); }
+}
+
+// Знакомство (1.3.2, по образцу «Хомяка» #onboard): затемнение, подписи-стрелки к меню и поиску,
+// карточка со значками кнопок раздела и «Понятно, начать». Это .modal-back: «назад» на телефоне и
+// Escape закрывают его как «Понятно» (handleBack -> closeModal -> Escape), фон - тоже. Флаг «показано»
+// ставится в момент показа (ревью 1.3.2): сейф заперли посреди знакомства (перезагрузка) - оно уже
+// засчитано и не всплывёт снова. Promise - когда закрыли.
+function openOnboard() {
+  markOnboarded(lsGet());
+  return new Promise((resolve) => {
+    const back = document.createElement('div');
+    back.className = 'modal-back onboard-back';
+    back.setAttribute('role', 'dialog');
+    back.setAttribute('aria-modal', 'true');
+    back.setAttribute('aria-label', 'Знакомство с приложением');
+    const ic = (name) => (name === '+' ? '<span class="ob-plus" aria-hidden="true">+</span>' : `<span class="ob-ic" aria-hidden="true">${icon(name, 20)}</span>`);
+    back.innerHTML = `
+      <div class="ob-hints">${ONBOARD_POINTERS.map((h) => `<div class="ob-hint ${h.cls}"><b>${h.title}</b><span>${h.text}</span></div>`).join('')}</div>
+      <div class="modal onboard" id="onboard">
+        <img class="ob-logo" src="img/vault-emblem.png" width="56" height="56" alt="">
+        <h3 class="ob-t">${ONBOARD_TITLE}</h3>
+        <p class="ob-p">${ONBOARD_LEAD}</p>
+        <ul class="ob-list">${ONBOARD_ITEMS.map((it) => `<li>${ic(it.ic)}<span>${it.text}</span></li>`).join('')}</ul>
+        <button type="button" class="save ob-btn" id="obDone">${ONBOARD_DONE}</button>
+      </div>`;
+    let closed = false;
+    const close = () => {
+      if (closed) return;
+      closed = true;
+      document.removeEventListener('keydown', onKey, true);
+      back.remove();
+      haptic('light');
+      resolve();
+    };
+    const onKey = (e) => { if (e.key === 'Escape' && isTopModal(back)) { e.stopPropagation(); close(); } };
+    back.querySelector('#obDone').onclick = close;
+    closeOnBackdrop(back, close);
+    document.addEventListener('keydown', onKey, true);
+    document.body.appendChild(back);
+    try { back.querySelector('#obDone').focus(); } catch (e) {}
+  });
 }
 
 async function onPwUnlock(e) {
@@ -1628,6 +1703,7 @@ function syncReorderBtn(searching) {
 // Вход в раздел с витрины: секреты прячем заново, открываем список раздела.
 function enterSection(s) {
   current = s;
+  if (s === 'seed') seedBannerHidden = false;   // новый вход в раздел - баннер снова виден (1.3.2)
   view = 'section';
   revealSecrets = false;
   exitReorderMode();
@@ -2085,7 +2161,7 @@ function seyfOpenDlg({ title, body, buttons }) {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.textContent = b.label;
-    btn.className = b.cls === 'primary' ? 'save' : (b.cls === 'ghost' ? 'cancel' : '');
+    btn.className = b.cls === 'primary' ? 'save' : (b.cls === 'ghost' ? 'cancel' : (b.cls === 'neutral' ? 'neutral' : ''));
     btn.onclick = () => { const keep = (typeof b.onClick === 'function') && (b.onClick() === false); if (!keep) close(); };
     acts.appendChild(btn);
   }
@@ -2369,7 +2445,7 @@ function renderList(query = '') {
     list.appendChild(bar);
   }
 
-  if (!query.trim() && current === 'seed' && !isSeedBannerDismissed(window.localStorage)) {
+  if (current === 'seed' && seedBannerVisible(lsGet(), { hiddenThisVisit: seedBannerHidden, query })) {
     list.appendChild(renderSeedBanner());
   }
 
@@ -3207,7 +3283,19 @@ function openEditor(section, entry) {
         try { refreshAfterMutation(); } catch (e) { toast('Запись сохранена, но список не обновился (render: ' + saveErrorLabel(e) + ')'); }
       },
       persist: saveFile,
-      onSaved: () => haptic('light'),   // п.12: тактильный отклик на успешном сохранении записи
+      onSaved: () => {
+        haptic('light');   // п.12: тактильный отклик на успешном сохранении записи
+        // 1.3.2: первая seed-фраза дошла до диска - одно короткое напоминание (окно в гамме приложения)
+        if (section === 'seed') {
+          const seedCount = ((state.vault && state.vault.sections && state.vault.sections.seed) || []).length;
+          if (firstSeedReminderDue(lsGet(), { isNew, seedCount })) {
+            markFirstSeedReminded(lsGet());
+            dlgAlert(SEED_FIRST_TEXT, SEED_FIRST_TITLE);
+          }
+        }
+        // 1.3.2: момент пользы - новая запись дошла до диска (review.js решает, пора ли)
+        if (isNew) { try { review.afterSave(); } catch (e) {} }
+      },
       onFailed: (e) => toast('Не удалось записать на устройство (' + saveErrorLabel(e) + ')'),
     });
   };

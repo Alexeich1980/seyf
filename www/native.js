@@ -13,6 +13,8 @@
       NativeBiometric: C.registerPlugin('NativeBiometric'),
       SaveFile: C.registerPlugin('SaveFile'),
       RuStorePay: C.registerPlugin('RuStorePay'),
+      RuStoreUpdate: C.registerPlugin('RuStoreUpdate'),   // 1.3.2: обновления стор-сборки (storeupdate.js)
+      RuStoreReview: C.registerPlugin('RuStoreReview'),   // 1.3.2: окно оценки (js/review.js)
       WebView: C.registerPlugin('WebView'),
     };
   } catch (e) { window.NativePlugins = null; }
@@ -32,6 +34,7 @@
   // единственный и он же верный.
   window.SHELL_IS_BROWSER = !window.isNativeApp();
   window.SHELL_VERSION = null;
+  window.SHELL_BUILD = 0;   // versionCode APK (App.getInfo().build): storeupdate.js гасит точку «есть новее» после обновления
   window.SHELL_READY = Promise.resolve(null);
 
   if (window.SHELL_IS_BROWSER) {
@@ -42,6 +45,8 @@
         var v = info && info.version ? String(info.version) : '';
         if (!v) return null;
         window.SHELL_VERSION = v;
+        var b = Number(info && info.build);
+        if (isFinite(b) && b > 0) window.SHELL_BUILD = Math.floor(b);
         // меню рисует номер версии — обновим, если оболочка отстала от веб-сборки
         try { if (window.SeyfUI && window.SeyfUI.renderMenu) window.SeyfUI.renderMenu(); } catch (e) {}
         return v;

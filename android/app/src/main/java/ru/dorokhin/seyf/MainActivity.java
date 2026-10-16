@@ -27,6 +27,8 @@ public class MainActivity extends BridgeActivity {
         // при создании, всё, что позже, он уже не увидит.
         registerPlugin(SaveFilePlugin.class);
         registerPlugin(RuStorePayPlugin.class);
+        registerPlugin(RuStoreUpdatePlugin.class);   // 1.3.2: обновления через RuStore App Update SDK
+        registerPlugin(RuStoreReviewPlugin.class);   // 1.3.2: окно оценки RuStore Review SDK
         super.onCreate(savedInstanceState);
 
         // FLAG_SECURE: запрет скриншотов/записи экрана и пустой эскиз в списке недавних.

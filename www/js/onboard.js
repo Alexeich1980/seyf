@@ -1,0 +1,36 @@
+// onboard.js - знакомство с приложением при первом входе (1.3.2, по образцу «Хомяка»: #onboard,
+// maybeOnboard). Один раз, сразу после СОЗДАНИЯ сейфа (мастер-пароль задан, биометрия предложена).
+// Кто обновился с прежней версии, сейф уже имеет и экран создания не проходит - знакомства не увидит.
+// Флаг «показано» - в localStorage (про этот телефон), ставится в момент показа (не по «Понятно»):
+// заперли сейф посреди знакомства - оно не повторится; сейф создадут заново (после сброса) - тоже.
+// Здесь - что сказать про кнопки (подписи к значкам); подсказки по разделам («что хранить») живут в
+// hints.js и тут не повторяются. Окно рисует app.js (openOnboard). Тесты - tests/onboard-132.test.mjs.
+
+export const ONBOARD_KEY = 'seyf_onboarded';
+
+// Показать ли знакомство: только сразу после создания сейфа и только если ещё не показывали.
+export function shouldOnboard(ls, { justCreated } = {}) {
+  if (!justCreated) return false;
+  try { return !(ls && ls.getItem(ONBOARD_KEY) === '1'); } catch (e) { return true; }
+}
+export function markOnboarded(ls) {
+  try { if (ls) ls.setItem(ONBOARD_KEY, '1'); return true; } catch (e) { return false; }
+}
+
+// Подписи к стрелкам над карточкой: кнопки, которые видны на главном экране (витрина).
+export const ONBOARD_POINTERS = Object.freeze([
+  { cls: 'ob-menu', title: '↖ Меню', text: 'копия, вход, тема, обновление' },
+  { cls: 'ob-search', title: 'Поиск ↑', text: 'сразу по всем разделам' },
+]);
+
+// Кнопки внутри раздела - строками с их значками (ic - имя значка icons.js или символ «+»).
+export const ONBOARD_ITEMS = Object.freeze([
+  { ic: '+', text: '<b>«+»</b> внизу раздела добавляет запись.' },
+  { ic: 'eye', text: '<b>Глаз</b> показывает или прячет пароли раздела.' },
+  { ic: 'help', text: '<b>«?»</b> рассказывает, что хранить в разделе.' },
+  { ic: 'lock', text: '<b>Замок</b> сразу запирает сейф.' },
+]);
+
+export const ONBOARD_TITLE = 'Сейф готов';
+export const ONBOARD_LEAD = 'Откройте раздел на главном экране, например «Пароли», и добавьте первую запись.';
+export const ONBOARD_DONE = 'Понятно, начать';
