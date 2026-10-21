@@ -1,0 +1,11 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Сейф</string>
+    <string name="title_activity_main">Сейф</string>
+    <string name="package_name">ru.dorokhin.seyf</string>
+    <string name="custom_url_scheme">ru.dorokhin.seyf</string>
+    <!-- RuStore Pay: идентификатор приложения из RuStore Console (console_app_id_key).
+         ЗАПОЛНЯЕТ АЛЕКСЕЙ после регистрации приложения в консоли RuStore. Без него платежи
+         не инициализируются (в MockPayment/браузере это не мешает — платит только боевой Android). -->
+    <string name="rustore_console_app_id">2063760405</string>
+</resources>

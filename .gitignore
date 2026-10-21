@@ -1,0 +1,37 @@
+# Зависимости и сборка
+node_modules/
+build/
+out/
+android/.gradle/
+android/build/
+android/app/build/
+android/capacitor-cordova-android-plugins/
+android/local.properties
+local.properties
+*.apk
+*.aab
+
+# Ключи подписи и секреты: никогда не публикуются
+keys/
+*.jks
+*.keystore
+*.properties.local
+tools/*
+!tools/css-overlay-guard.mjs
+tools/license-key.json
+tools/ota-sign-key.json
+tools/ota-sign-key-backup.json
+.env
+.env.*
+
+# Внутренние скрипты публикации
+build-ota.js
+publish-update.py
+serve.js
+
+# Служебное
+qa-*/
+*.log
+.idea/
+.DS_Store
+Thumbs.db
