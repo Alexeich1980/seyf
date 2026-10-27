@@ -15,6 +15,8 @@
       RuStorePay: C.registerPlugin('RuStorePay'),
       RuStoreUpdate: C.registerPlugin('RuStoreUpdate'),   // 1.3.2: обновления стор-сборки (storeupdate.js)
       RuStoreReview: C.registerPlugin('RuStoreReview'),   // 1.3.2: окно оценки (js/review.js)
+      FontScale: C.registerPlugin('FontScale'),           // 1.3.3: крупный системный шрифт (js/fontzoom.js)
+      Print: C.registerPlugin('Print'),                   // 1.3.3: печать листа архива (js/archive-ui.js)
       WebView: C.registerPlugin('WebView'),
     };
   } catch (e) { window.NativePlugins = null; }

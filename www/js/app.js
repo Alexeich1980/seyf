@@ -5,6 +5,7 @@ import * as Gen from './generator.js';
 import { defaultStore } from './storage.js';
 import * as Auth from './auth.js';
 import { createAutoLock, resumeDecision, foregroundDecision } from './autolock.js';
+import { createSysWindow } from './syswindow.js';
 import { getHintParagraphs } from './hints.js';
 import { validateSeedPhrase, parseSeedWords, SEED_LENGTHS, seedBannerVisible, seedBannerOk, firstSeedReminderDue, markFirstSeedReminded, SEED_FIRST_TITLE, SEED_FIRST_TEXT, seedLengthChangeIsDirty, seedWordValid, invalidSeedWords } from './seed.js';
 import { normalizeFieldValue, checkRequisite, hasRequisiteNorm } from './fieldnorm.js';
@@ -18,7 +19,8 @@ import { cleanupCameraTemp as cleanCamTemp } from './camtemp.js';
 import * as Gate from './gate.js';
 import * as Payment from './payment.js';
 import * as Access from './access.js';
-import { computeAccess, runPurchase, autoRestorePro } from './pay.js';
+import { computeAccess, autoRestorePro, ackPendingPro, formatPrice, priceRub, precheck as payPrecheck } from './pay.js';
+import { createPurchaseFlow, PAY_TEXT, failDialog, payHintLines, INFO_DIALOGS, SILENT_KINDS } from './purchase.js';
 import { createClipboardGuard, copyNeedsGuard, makeClipFlag, waitForFocus, clearAfterReload } from './clipboard.js';
 import { DEFAULT_THEME, THEME_LABELS, normalizeTheme, nextTheme, themeSwatchIcon } from './theme.js';
 import * as Demo from './demo.js';
@@ -43,7 +45,13 @@ import { SEED_NETWORKS, isKnownNetwork } from './seed-networks.js';
 import { buildRequisitesShareText } from './share.js';
 import { cardOpenMode, nextExpanded, expandActions } from './carddetail.js';
 import { createReview } from './review.js';
+import * as Nudge from './backupnudge.js';
+import { initFontZoom } from './fontzoom.js';
 import { shouldOnboard, markOnboarded, ONBOARD_POINTERS, ONBOARD_ITEMS, ONBOARD_TITLE, ONBOARD_LEAD, ONBOARD_DONE } from './onboard.js';
+// 1.3.3: «Архив для близких» (бесплатно, без лимитов): данные - vault.archive, окна - archive-ui.js
+import { ensureArchive, opensVaultKey } from './archive.js';
+import { initArchiveUI, openArchive, maybeRemindArchive } from './archive-ui.js';
+import { FAQ, FAQ_TITLE } from './faq.js';   // 1.3.3: «Частые вопросы» в «О приложении»
 
 // Единый охранник буфера обмена: копирование секрета + очистка по TTL и при блокировке.
 // 1.2.24 (п.1): флаг «буфер надо очистить» переживает перезагрузку при блокировке (секрет туда не
@@ -94,6 +102,132 @@ window.Pay = {
   buyFullAccess(ret) { openProFlow(typeof ret === 'function' ? ret : undefined); },
   restorePurchase(ret) { openPaywall({ reopen: typeof ret === 'function' ? ret : undefined }); },
 };
+
+// Цена полной версии (1.3.3): из магазина (getProducts → amountLabel «990.00 руб.» → «990 ₽»,
+// pay.js formatPrice), пока не пришла или нет связи - своя (Gate.PRO_PRICE_RUB). Пробел перед ₽ -
+// неразрывный (escape). Одна функция для меню и кнопки пейволла.
+// Акция (22.10.2026, gate.js priceDisplay): в акцию при цене магазина ниже обычной - обычная
+// зачёркнута + цена магазина + «Акция до 31 декабря»; после 31.12 - обычный вид; без цены
+// магазина - по дате.
+let storePrice = null;   // цена магазина строкой (formatPrice)
+let storeRub = null;     // она же числом (priceRub)
+function priceShow() { return Gate.priceDisplay(storeRub, storePrice); }
+function priceText() { return priceShow().now; }
+// Блок цены в окне «Полная версия»: только в акцию (зачёркнутая обычная, новая, срок).
+function pricePromoHtml(p) {
+  if (!p.old) return '';
+  return `<div class="pw-price"><s class="pw-price-old" aria-label="обычная цена ${UI.escapeHtml(p.old)}">${UI.escapeHtml(p.old)}</s><b class="pw-price-now">${UI.escapeHtml(p.now)}</b>${p.note ? `<span class="pw-price-note">${UI.escapeHtml(p.note)}</span>` : ''}</div>`;
+}
+// «Купить за …» в меню: в акцию со старой ценой зачёркнутой.
+function priceMenuHtml(p) {
+  return 'Купить за ' + (p.old ? `<s>${UI.escapeHtml(p.old)}</s> ` : '') + UI.escapeHtml(p.now);
+}
+// М1 (адв. ревью 1.3.3, 27.10.2026): цену магазина спрашиваем ОДИН раз за запуск - при входе в сейф, в
+// меню или в окне покупки, кто первый; остальные берут тот же ответ. Раньше её спрашивало только окно
+// покупки, и меню до него показывало цену по дате, а окно - цену магазина. Повтор - только из окна
+// покупки и только если первый запрос не удался (цена нужна перед оплатой). Pro - не спрашиваем.
+let storePriceReq = null;
+let storePriceOk = false;
+function loadStorePrice(opts = {}) {
+  if (!storePriceReq || (opts.retry === true && !storePriceOk)) {
+    let a; try { a = getAdapter(); } catch (e) { a = null; }
+    storePriceReq = (a && typeof a.getPriceLabel === 'function')
+      ? Promise.resolve().then(() => a.getPriceLabel()).then((label) => {
+        const f = formatPrice(label);
+        if (f) { storePrice = f; storeRub = priceRub(label); storePriceOk = true; }
+        return storePriceOk;
+      }, () => false)
+      : Promise.resolve(false);
+    storePriceReq.then(() => { try { updateMenuInfo(); } catch (e) {} });
+  }
+  return storePriceReq.then(() => priceText());
+}
+// Вход в сейф / открытие меню: цена магазина заранее (один запрос за запуск), чтобы меню и окно
+// покупки показывали одно и то же. Демо и Pro - не спрашиваем.
+function prefetchStorePrice() {
+  if (!state.vault || state.demoMode || vaultIsPro(state.vault)) return;
+  loadStorePrice();
+}
+
+// Ход покупки (1.3.3 после адв. ревью, В1): purchase.js - одна машина состояний, итог шторки даёт плагин
+// (сессия покупки в RuStorePayPlugin.java). Один на запуск: поздний успех доходит, даже если окно покупки
+// уже закрыли. payUi - открытое окно «Полная версия» (его кнопки и строки); закрыто - успех открываем тихо
+// (grantQuietly), неуспех молча (человек сам ушёл с экрана покупки), «Проверим позже» - всегда.
+let payUi = null;
+const purchaseFlow = createPurchaseFlow({
+  getAdapter,
+  isPro: () => !!(state.vault && vaultIsPro(state.vault)),
+  onPending: () => showPayPending(),
+  onLate: (r) => showPayResult(r, { away: true }),
+  onPrecheck: (pc) => { if (payUi) payUi.hint(pc); },
+  stillHere: () => !!payUi,
+  // М5: шторка RuStore и банк - наше системное окно: таймер бездействия стоит, пока человек платит. Ушёл в банк
+  // дольше окна автоблока - сейф запрётся при возврате (баг 1.3.3), покупку после входа подхватит autoRestoreQuietly.
+  wrapSheet: (fn) => withSystemWindow(fn, { holdAutoLock: true }),
+});
+function startBuy(opts) {
+  if (!payUi) openProFlow();   // «Попробовать снова» / «Оплатить снова» после ухода с экрана покупки
+  if (payUi) payUi.idle();
+  purchaseFlow.buy(opts).then((r) => showPayResult(r), () => showPayResult({ kind: 'failed', granted: false }));
+  if (payUi) payUi.idle();
+}
+function startRestore(opts) {
+  if (!payUi) openProFlow();
+  purchaseFlow.restore(opts).then((r) => showPayResult(r), () => showPayResult({ kind: 'error', granted: false }));
+  if (payUi) payUi.idle();
+}
+// Окно «Оплата обрабатывается» (п.11 регламента): одно, с кнопкой «Понятно»; итог ожидания закрывает его сам.
+let payPendingCtl = null;
+function showPayPending() {
+  if (payPendingCtl) return;
+  const ctl = {};
+  payPendingCtl = ctl;
+  const d = INFO_DIALOGS.pending;
+  appDialog({ title: d.title, message: d.text, ctl, cls: 'pay-pending',
+    buttons: [{ label: 'Понятно', value: true, cancel: true, primary: true, kind: 'save' }] })
+    .then(() => { if (payPendingCtl === ctl) payPendingCtl = null; });
+}
+function closePayPending() {
+  const c = payPendingCtl;
+  payPendingCtl = null;
+  if (c && typeof c.close === 'function') c.close(false);
+}
+// Итог покупки/восстановления → окно. away - итог пришёл не из нажатия в окне покупки (поздний успех,
+// ожидание оплаты при входе в сейф): неуспех тогда тоже показываем.
+async function showPayResult(r, opt = {}) {
+  closePayPending();
+  if (payUi) payUi.idle();
+  if (!r || SILENT_KINDS.includes(r.kind)) return;
+  if (r.granted) { if (payUi) await payUi.granted(r); else await grantQuietly(r); return; }
+  if (!payUi && !opt.away && r.kind !== 'later') return;
+  const info = INFO_DIALOGS[r.kind];
+  if (info) {
+    await appDialog({ title: info.title, message: info.text, buttons: [{ label: 'Понятно', value: true, cancel: true, primary: true, kind: 'save' }], cls: 'pay-fail' });
+    return;
+  }
+  await openPayFail(r.kind, {
+    retry: () => startBuy(),
+    again: () => startBuy({ again: true }),
+    restore: () => startRestore({ already: r.kind === 'already' }),
+    store: () => openRuStore(),
+  });
+}
+const GRANT_TEXT = { ok: PAY_TEXT.thanks, owned: PAY_TEXT.ownedAlready, restored: PAY_TEXT.restored };
+async function grantQuietly(r) {
+  if (!state.vault || state.demoMode) return;   // сейф заперли - доступ откроет autoRestorePro при входе
+  if (vaultIsPro(state.vault)) return;
+  Gate.markPro(state.vault, { source: getAdapter().kind, purchaseId: (r && r.purchaseId) || null });
+  try { await saveFile(); } catch (e) { return; }
+  try { updateMenuInfo(); } catch (e) {}
+  toast(GRANT_TEXT[r && r.kind] || PAY_TEXT.thanks);
+}
+// «Открыть RuStore» (окно «Нужен RuStore», В2): карточка приложения в RuStore, без RuStore - страница в
+// браузере (storeupdate.js, тот же путь, что у окна «Обновление»).
+function openRuStore() {
+  const S = window.StoreUpdate;
+  if (S && typeof S.openStore === 'function') { S.openStore(null, openExternal); return; }
+  openExternal('https://www.rustore.ru/catalog/app/ru.dorokhin.seyf');
+}
 
 const store = defaultStore();
 
@@ -168,18 +302,19 @@ function styledConfirm({ title, message, confirmText = 'Сохранить', den
 
 // Универсальные окна в стиле приложения — замена нативных alert/confirm/prompt.
 // ctl (1.2.24): если передан, получает ctl.close(value) - закрыть окно программно (авто-продолжение).
-function appDialog({ title, message, buttons, input, ctl }) {
+function appDialog({ title, message, buttons, input, ctl, note, cls }) {
   return new Promise((resolve) => {
     const back = document.createElement('div');
     back.className = 'modal-back';
     const m = document.createElement('div');
-    m.className = 'modal confirm';
+    m.className = 'modal confirm' + (cls ? ' ' + cls : '');
     // ЗАСЛОН self-XSS (v3-1): message/placeholder/label/title могут содержать данные пользователя
     // (напр. список «плохих» seed-слов) - экранируем перед вставкой в innerHTML.
     const esc = UI.escapeHtml;
     let html = '';
     if (title) html += `<h3>${esc(title)}</h3>`;
     if (message) html += `<p class="confirm-msg">${esc(message)}</p>`;
+    if (note) html += `<p class="confirm-msg confirm-note">${esc(note)}</p>`;   // 1.3.3: вторая строка (VPN в окне оплаты)
     if (input) html += `<input class="dlg-input" type="${input.password ? 'password' : 'text'}" placeholder="${esc(input.placeholder || '')}">`;
     // Начальное значение поля ставим свойством (не через innerHTML) - безопасно и без экранирования.
     html += '<div class="modal-actions">' + buttons.map((b, i) => `<button data-i="${i}" class="${esc(b.kind || '')}">${esc(b.label)}</button>`).join('') + '</div>';
@@ -406,7 +541,7 @@ function showHint(section) {
     <div class="hint-body">${paras}</div>
     <div class="modal-actions"><button class="save">Понятно</button></div>`;
   const done = () => { document.removeEventListener('keydown', onKey, true); back.remove(); };
-  const onKey = (e) => { if (e.key === 'Escape' || e.key === 'Enter') { e.stopPropagation(); done(); } };
+  const onKey = (e) => { if ((e.key === 'Escape' || e.key === 'Enter') && isTopModal(back)) { e.stopPropagation(); done(); } };
   m.querySelector('.save').onclick = done;
   closeOnBackdrop(back, done);
   document.addEventListener('keydown', onKey, true);
@@ -1441,7 +1576,7 @@ async function onPwUnlock(e) {
 }
 
 async function afterUnlock(res, opts = {}) {
-  state.dek = res.dek; state.vault = ensureSections(res.vault); state.dekRaw = res.dekRaw || null;
+  state.dek = res.dek; state.vault = ensureArchive(ensureSections(res.vault)); state.dekRaw = res.dekRaw || null;
   // Мягкое предложение включить вход по биометрии - ТОЛЬКО после создания пароля (v3-auth),
   // не на каждом входе. Требует разблокированного ключа и доступной биометрии.
   if (opts.offerBio && !state.file.helloWrap && state.dekRaw && await Auth.bioAvailable()) {
@@ -1464,11 +1599,74 @@ async function afterUnlock(res, opts = {}) {
   haptic('light');       // п.12: тактильный отклик на входе/разблокировке сейфа
   startAutoLock();
   autoRestoreQuietly();
+  prefetchStorePrice();   // М1: цена магазина для меню и окна покупки - один запрос за запуск
+  // 1.3.3: напоминание о резервной копии - после разблокировки, не чаще раза в месяц
+  try { const ls = lsGet(); Nudge.writeStamp(ls, Nudge.withFirstSeen(Nudge.readStamp(ls), Date.now())); } catch (e) {}
+  setTimeout(() => { try { if (!maybeRemindBackup()) maybeRemindArchive(); } catch (e) {} }, 900);   // 1.3.3: архив - раз в полгода, если копия не напоминала
+}
+
+// ---------- напоминание о резервной копии (1.3.3, перенос из десктопа c93358be) ----------
+// Раз в месяц, не раньше 30 дней после установки/последней копии (backupnudge.js backupDue).
+// Только в настоящем сейфе с записями и когда поверх ничего не открыто (окно, меню, вход).
+function vaultEntryCount() {
+  const secs = (state.vault && state.vault.sections) || {};
+  return Object.values(secs).reduce((n, a) => n + (Array.isArray(a) ? a.length : 0), 0);
+}
+function maybeRemindBackup(now = Date.now()) {
+  if (!state.vault || state.demoMode) return false;
+  if (document.querySelector('.modal-back')) return false;
+  const lock = document.querySelector('#lock'); if (lock && !lock.classList.contains('hidden')) return false;
+  const bg = document.querySelector('#menuBg'); if (bg && !bg.hidden) return false;
+  const ls = lsGet();
+  const stamp = Nudge.readStamp(ls);
+  if (!Nudge.backupDue(stamp, { now, entryCount: vaultEntryCount() })) return false;
+  Nudge.writeStamp(ls, Nudge.markShown(stamp, now));
+  showBackupReminder(stamp);
+  return true;
+}
+// Своё окно в стиле приложения: когда была последняя копия, зачем она, «Позже» / «Сделать копию»
+// и галочка «Больше не напоминать». «Позже», фон и «назад» - до следующего месяца.
+function showBackupReminder(stamp) {
+  const back = document.createElement('div');
+  back.className = 'modal-back';
+  const m = document.createElement('div');
+  m.className = 'modal confirm backup-remind';
+  m.innerHTML = `<h3>${UI.escapeHtml(Nudge.REMIND_TITLE)}</h3>
+    <p class="confirm-msg">${UI.escapeHtml(Nudge.lastBackupText(stamp))} ${UI.escapeHtml(Nudge.REMIND_TEXT)}</p>
+    <label class="seed-banner-never remind-off"><input type="checkbox" class="remind-off-cb"> Больше не напоминать</label>
+    <div class="modal-actions">
+      <button type="button" class="cancel">Позже</button>
+      <button type="button" class="save">Сделать копию</button>
+    </div>`;
+  const cb = m.querySelector('.remind-off-cb');
+  let closed = false;
+  const finish = (save) => {
+    if (closed) return; closed = true;
+    document.removeEventListener('keydown', onKey, true); back.remove();
+    const ls = lsGet();
+    let st = Nudge.markLater(Nudge.readStamp(ls), Date.now());
+    if (cb.checked) st = Nudge.setRemindOff(st, true);
+    Nudge.writeStamp(ls, st);
+    if (cb.checked) toast('Напоминания о копии выключены');
+    if (save) doExport();
+  };
+  const onKey = (e) => { if (e.key === 'Escape' && isTopModal(back)) { e.stopPropagation(); finish(false); } };
+  m.querySelector('.cancel').onclick = () => finish(false);
+  m.querySelector('.save').onclick = () => finish(true);
+  closeOnBackdrop(back, () => finish(false));
+  document.addEventListener('keydown', onKey, true);
+  back.appendChild(m);
+  document.body.appendChild(back);
+}
+// Копия успешно сохранена - отметка для напоминания (отсчёт месяца заново).
+function markBackupDone() {
+  try { const ls = lsGet(); Nudge.writeStamp(ls, Nudge.markBackup(Nudge.readStamp(ls), Date.now())); } catch (e) {}
 }
 
 // Тихое восстановление покупки после разблокировки (ревью 1.3.0, п.2): Pro не отмечен, адаптер
 // боевой RuStore, а товар в аккаунте куплен (переустановка, новый телефон, оплата прошла, а
 // ответ шторки потерялся) - отмечаем Pro и записываем. Нет покупки/ошибка сети - молча.
+let ackChecked = false;
 function autoRestoreQuietly() {
   autoRestorePro({
     adapter: getAdapter(),
@@ -1476,7 +1674,13 @@ function autoRestoreQuietly() {
     isPro: vaultIsPro,
     markPro: Gate.markPro,
     save: saveFile,
+    // В1: при входе магазин видит свежую оплату «в обработке» - ждём её итога без новой шторки
+    onPending: (pid) => { purchaseFlow.watch(pid).then((r) => showPayResult(r, { away: true }), () => {}); },
   }).then((r) => {
+    if (r === 'skip' && !ackChecked && state.vault && !state.demoMode) {
+      ackChecked = true;   // раз за запуск: один вопрос к RuStore, не на каждую разблокировку
+      ackPendingPro({ adapter: getAdapter(), vault: state.vault }).catch(() => {});
+    }
     if (r !== 'restored' && r !== 'saved-failed') return;
     try { updateMenuInfo(); } catch (e) {}
     if (r === 'restored') toast('Покупка найдена в RuStore. Полная версия восстановлена.');
@@ -1523,11 +1727,14 @@ function renderGridShell(shell) {
           <input id="search" type="text" inputmode="search" enterkeyhint="search" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" placeholder="Поиск по всем разделам…" aria-label="Поиск по всем разделам">
           <button id="searchClear" class="search-clear" type="button" title="Очистить" aria-label="Очистить поиск" hidden></button>
         </div>
+        <button id="lockBtn" class="ic-btn" title="Заблокировать" aria-label="Заблокировать сейф">${icon('lock', 22)}</button>
       </header>
     </div>
     <div id="grid" class="vitrina"></div>
     <div id="list" hidden></div>`;
   $('#menuBtn').querySelector('img'); // noop guard (menu bound в renderShell-каркасе)
+  // 1.3.3 (Алексей 27.10): «Заблокировать» убрана из меню - замок в шапке главного экрана, как в разделе.
+  { const lb = $('#lockBtn'); if (lb) lb.onclick = () => lockNow(); }
   const sIc = shell.querySelector('.search-ic'); if (sIc) sIc.innerHTML = icon('search', 18);
   const clr = shell.querySelector('#searchClear'); if (clr) clr.innerHTML = icon('close', 18);
   renderGrid();
@@ -1748,7 +1955,7 @@ function openBackupDialog() {
       </span>
     </button>`;
   const done = () => { document.removeEventListener('keydown', onKey, true); back.remove(); };
-  const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); done(); } };
+  const onKey = (e) => { if (e.key === 'Escape' && isTopModal(back)) { e.stopPropagation(); done(); } };
   m.querySelector('.backup-x').onclick = done;
   m.querySelector('.backup-save').onclick = () => { done(); doExport(); };
   m.querySelector('.backup-restore').onclick = () => { done(); doImport(); };
@@ -1776,7 +1983,7 @@ async function doExport() {
     try {
       const base64 = btoa(unescape(encodeURIComponent(contents)));
       const r = await withSystemWindow(() => NP.SaveFile.save({ name, mime: 'application/octet-stream', base64 }));
-      if (r && r.ok) toast('Резервная копия сохранена');
+      if (r && r.ok) { markBackupDone(); toast('Резервная копия сохранена'); }
       else if (!(r && r.cancelled)) toast('Не удалось сохранить копию');
     } catch (e) { toast('Не удалось сохранить копию'); }
     return;
@@ -1789,6 +1996,7 @@ async function doExport() {
       }));
       const w = await handle.createWritable();
       await w.write(contents); await w.close();
+      markBackupDone();
       toast('Резервная копия сохранена');
     } catch (e) { if (!(e && e.name === 'AbortError')) toast('Не удалось сохранить копию'); }
     return;
@@ -1819,7 +2027,7 @@ async function onImportFile(e) {
   try { res = await C.unlockWithPassword(file, pw); }
   catch { await dlgAlert('Неверный пароль для этой копии.'); return; }
   if (!await dlgConfirm('Заменить текущие данные содержимым копии? Текущие записи будут заменены.', { title: 'Восстановление', ok: 'Заменить', danger: true })) return;
-  state.vault = ensureSections(res.vault);
+  state.vault = ensureArchive(ensureSections(res.vault));
   revealSecrets = false; syncRevealBtn();
   // A9: перерисовываем СРАЗУ (данные уже в памяти), запись - после, её сбой не молчит.
   try { if (view === 'grid') renderShell(); else renderList(); } catch (err) {}
@@ -1966,7 +2174,7 @@ function openProInfo() {
     <ul class="about-list">${feats.map((f) => `<li>${UI.escapeHtml(f)}</li>`).join('')}</ul>
     <div class="modal-actions"><button type="button" class="save about-ok">Понятно</button></div>`;
   const done = () => { document.removeEventListener('keydown', onKey, true); back.remove(); };
-  const onKey = (e) => { if (e.key === 'Escape' || e.key === 'Enter') { e.stopPropagation(); done(); } };
+  const onKey = (e) => { if ((e.key === 'Escape' || e.key === 'Enter') && isTopModal(back)) { e.stopPropagation(); done(); } };
   m.querySelector('.about-ok').onclick = done;
   m.querySelector('.about-x').onclick = done;
   closeOnBackdrop(back, done);
@@ -1981,6 +2189,7 @@ function menuEl() { return document.querySelector('#menu'); }
 function menuIsOpen() { const m = menuEl(); return !!(m && m.classList.contains('open')); }
 function openMenu() {
   const m = menuEl(); if (!m) return;
+  prefetchStorePrice();   // М1: уже спрошена при входе - повторного запроса нет
   updateMenuInfo();
   m.classList.add('open');
   m.setAttribute('aria-hidden', 'false');
@@ -2017,7 +2226,7 @@ function updateMenuInfo() {
   // Полная версия (8f A.6): понятный статус — активна / цена покупки, без мелких подписей.
   const pro = document.querySelector('#mProInfo');
   const isPro = !!(state.vault && vaultIsPro(state.vault));
-  if (pro) pro.textContent = isPro ? 'активна' : ('Купить за ' + Gate.PRO_PRICE_RUB + ' ₽');
+  if (pro) { if (isPro) pro.textContent = 'активна'; else pro.innerHTML = priceMenuHtml(priceShow()); }
   // Бейдж Free/Pro у версии (18.4): Free — нейтральный серый, Pro — золото.
   const plan = document.querySelector('#menuPlan');
   if (plan) {
@@ -2026,13 +2235,8 @@ function updateMenuInfo() {
     plan.classList.toggle('is-pro', isPro);
     plan.classList.toggle('is-free', !isPro);
   }
-  // Подпись пункта «Обновление» (18.6): при доступном web-OTA — «доступно обновление»,
-  // иначе текущая версия. Наличие новее берём из update.js (newer()).
-  const upd = document.querySelector('#mUpdateInfo');
-  if (upd) {
-    const hasNewer = !!(window.Update && window.Update.newer && window.Update.newer());
-    upd.textContent = hasNewer ? 'доступно обновление' : ('версия ' + (window.APP_VERSION || ''));
-  }
+  // 1.3.3: пункта «Обновление» в меню нет - проверка в «О приложении», точка «есть новее» на его плитке.
+  syncUpdateDot();
   // Подпись пункта «Вход в приложение»: текущий способ входа простым языком.
   const bio = document.querySelector('#mBioInfo');
   if (bio) bio.textContent = isBioLoginEnabled(lsGet()) ? 'вход по биометрии' : 'мастер-пароль';
@@ -2048,7 +2252,7 @@ function bindMenuOnce() {
   // (v4, как в «Хомяке»): результат виден сразу на витрине, а не остаётся в открытом меню.
   on('mTheme', () => { toggleTheme(); updateMenuInfo(); closeMenu(); });
   on('mSections', () => { closeMenu(); openSectionVisibility(); });
-  on('mUpdate', () => { closeMenu(); if (window.Update && window.Update.open) window.Update.open(); else dlgAlert('Проверка обновлений станет доступна в собранном приложении.', 'Обновление'); });
+  on('mArchive', () => { closeMenu(); openArchive(); });
   on('mBackup', () => {
     // Сначала закрываем меню, потом показываем окно (иначе плашка бэкапа всплывает ЗА меню, #16).
     closeMenu();
@@ -2058,7 +2262,6 @@ function bindMenuOnce() {
   on('mKey', () => { closeMenu(); doChangeMaster(); });
   on('mPro', () => { closeMenu(); openProFlow(); });
   on('mAbout', () => { closeMenu(); openAbout(); });
-  on('mLock', () => { closeMenu(); lockNow(); });
   bindMenuSwipe();
 }
 
@@ -2156,7 +2359,13 @@ function seyfOpenDlg({ title, body, buttons }) {
   m.innerHTML = (title ? `<h3>${UI.escapeHtml(title)}</h3>` : '') + (body || '') + '<div class="modal-actions"></div>';
   const acts = m.querySelector('.modal-actions');
   const close = () => { document.removeEventListener('keydown', onKey, true); back.remove(); };
-  const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
+  // Ревью 1.3.3 В3: «Назад» закрывает только верхнее окно (под ним может быть «О приложении»)
+  const onKey = (e) => { if (e.key === 'Escape' && isTopModal(back)) { e.stopPropagation(); close(); } };
+  // Шаги обновления (проверяю -> результат, «Проверить» в окне версии) сменяют друг друга в ОДНОМ окне:
+  // прежнее окно обновления закрывается, а не остаётся под новым стопкой.
+  for (const old of document.querySelectorAll('.modal-back.upd-back')) { if (typeof old.seyfClose === 'function') old.seyfClose(); else old.remove(); }
+  back.classList.add('upd-back');
+  back.seyfClose = close;
   for (const b of (buttons || [])) {
     const btn = document.createElement('button');
     btn.type = 'button';
@@ -2178,10 +2387,35 @@ window.SeyfUI = {
   closeMenu,
   renderMenu: () => {
     updateMenuInfo();
-    const b = document.querySelector('#mUpdate');
-    if (b) b.classList.toggle('has-upd', !!(window.Update && window.Update.newer && window.Update.newer()));
+    syncAboutUpdate();
   },
 };
+// 1.3.3: есть ли версия новее (update.js: стор - по ответу RuStore, тест-канал - по манифесту).
+function updateNewer() { try { return !!(window.Update && window.Update.newer && window.Update.newer()); } catch (e) { return false; } }
+// Точка «есть новее» - на плитке «О приложении» (раньше на «Обновлении», которого в меню больше нет).
+function syncUpdateDot() {
+  const b = document.querySelector('#mAbout');
+  if (b) b.classList.toggle('has-upd', updateNewer());
+}
+// Строка версии в открытом «О приложении»: после проверки (или тихой недельной) меняется сама.
+function syncAboutUpdate() {
+  syncUpdateDot();
+  const row = document.querySelector('.about-upd');
+  if (!row) return;
+  const has = updateNewer();
+  row.classList.toggle('has-upd', has);
+  const t = row.querySelector('.about-upd-t');
+  if (t) t.textContent = 'Версия ' + (window.APP_VERSION || '') + (has ? ', есть новая' : '');
+  const b = row.querySelector('.about-check');
+  if (b) b.textContent = has ? 'Обновить' : 'Проверить обновления';
+}
+// «Проверить» в «О приложении» - та же логика, что была у пункта меню «Обновление» (update.js):
+// стор - окно RuStore с проверкой (storeupdate.js), тест-канал - манифест OTA. Есть новее - «Обновить».
+function checkUpdateFromAbout() {
+  const U = window.Update;
+  if (!U || !U.open) { dlgAlert('Проверка обновлений станет доступна в собранном приложении.', 'Обновление'); return; }
+  if (updateNewer() || !U.check) U.open(); else U.check();
+}
 // ЗАСЛОН bug3: кнопка «Сохранить бэкап» в диалоге обновления (update.js) зовёт
 // window.Backup.backup(). В Сейфе этого объекта не было — кнопка молча ничего не делала.
 // Экспортируем сохранение бэкапа (doExport) под тем же контрактом, что у «Хомяка».
@@ -2200,7 +2434,7 @@ function openAbout() {
       <span class="about-app"><img src="img/vault-emblem.png" width="40" height="40" alt=""></span>
       <div>
         <div class="about-name">Сейф</div>
-        <div class="about-ver">версия ${UI.escapeHtml(window.APP_VERSION || '')}</div>
+        <div class="about-ver about-upd"><span class="about-upd-t">Версия ${UI.escapeHtml(window.APP_VERSION || '')}</span><button type="button" class="about-check">Проверить обновления</button></div>
       </div>
       <button type="button" class="dv-close ic-btn about-x" title="Закрыть">${icon('close', 20)}</button>
     </div>
@@ -2216,6 +2450,9 @@ function openAbout() {
       <li>Данные шифруются на устройстве и не покидают его.</li>
       <li>Сейф запирается сам: после 5 минут без действий, а при возврате в приложение - если оно было в фоне дольше 5 минут. Кнопка с замком запирает сразу. Открыть - по биометрии или мастер-паролем (выбор в настройках).</li>
     </ul>
+    <div class="about-sec">${UI.escapeHtml(FAQ_TITLE)}</div>
+    <div class="about-faq">${FAQ.map((f) => `<details class="disclose"><summary>${UI.escapeHtml(f.q)}<span class="disc-arr" aria-hidden="true"></span></summary>
+      <div class="disc-b"><p>${UI.escapeHtml(f.a)}</p>${f.link ? `<button type="button" class="about-link" data-icon="globe" data-url="${UI.escapeHtml(f.link.url)}"><span class="about-link-ic"></span><span class="about-link-t">${UI.escapeHtml(f.link.label)}</span></button>` : ''}</div></details>`).join('')}</div>
     <div class="about-sec">Документы</div>
     <div class="about-contacts">
       <button type="button" class="about-link" data-icon="shield" data-url="https://dorokhin-finance.ru/seyf-store/privacy.html">
@@ -2231,7 +2468,9 @@ function openAbout() {
     <p class="about-author">Автор - Алексей Дорохин.</p>
     <div class="modal-actions"><button type="button" class="save about-ok">Понятно</button></div>`;
   const done = () => { document.removeEventListener('keydown', onKey, true); back.remove(); };
-  const onKey = (e) => { if (e.key === 'Escape' || e.key === 'Enter') { e.stopPropagation(); done(); } };
+  // Enter на вопросе раскрывает его, а не закрывает окно (1.3.3: частые вопросы - раскрывашки)
+  // Ревью 1.3.3 В3: только если окно верхнее - иначе «Назад» в окне «Обновление» закрывал и «О приложении»
+  const onKey = (e) => { if (!isTopModal(back)) return; if (e.key === 'Escape' || (e.key === 'Enter' && !(e.target && e.target.closest && e.target.closest('summary')))) { e.stopPropagation(); done(); } };
   // Значки ссылок по data-icon (не по индексу: порядок кнопок можно менять): документы (shield/doc)
   // и сайт (globe) → системный браузер (почты в окне нет с 1.3.1, I3). Всё через openExternal - интент
   // наружу, в т.ч. в стор-сборке (CSP connect-src 'none' навигацию не режет).
@@ -2241,10 +2480,14 @@ function openAbout() {
   });
   m.querySelector('.about-ok').onclick = done;
   m.querySelector('.about-x').onclick = done;
+  m.querySelector('.about-check').onclick = checkUpdateFromAbout;
   closeOnBackdrop(back, done);
   document.addEventListener('keydown', onKey, true);
   back.appendChild(m); document.body.appendChild(back);
-  m.querySelector('.about-ok').focus();
+  syncAboutUpdate();
+  // 1.3.3: окно стало длиннее (частые вопросы) - фокус на «Понятно» без прокрутки, окно открыто с начала (версия и «Проверить» видны)
+  m.querySelector('.about-ok').focus({ preventScroll: true });
+  m.scrollTop = 0;
 }
 
 // «Разделы на витрине» (18.3) — экран настройки видимости разделов в гамме приложения.
@@ -2297,7 +2540,7 @@ function openSectionVisibility() {
     back.remove();
     if (view === 'grid') renderGrid();   // применить изменения к витрине сразу
   };
-  const onKey = (e) => { if (e.key === 'Escape' || e.key === 'Enter') { e.stopPropagation(); done(); } };
+  const onKey = (e) => { if ((e.key === 'Escape' || e.key === 'Enter') && isTopModal(back)) { e.stopPropagation(); done(); } };
   m.querySelector('.dv-close').onclick = done;
   m.querySelector('.secvis-done').onclick = done;
   closeOnBackdrop(back, done);
@@ -2396,7 +2639,7 @@ function openBioLogin() {
   };
   render();
   const done = () => { document.removeEventListener('keydown', onKey, true); back.remove(); };
-  const onKey = (e) => { if (e.key === 'Escape' || e.key === 'Enter') { e.stopPropagation(); done(); } };
+  const onKey = (e) => { if ((e.key === 'Escape' || e.key === 'Enter') && isTopModal(back)) { e.stopPropagation(); done(); } };
   m.querySelector('.dv-close').onclick = done;
   m.querySelector('.secvis-done').onclick = done;
   // M1: редактирование подсказки к паролю прямо из настроек входа (пароль здесь неизвестен - '').
@@ -2551,7 +2794,9 @@ function openPaywall(ctx = {}) {
   const reason = ctx.section
     ? (ctx.limit === 0
       ? `<p class="paywall-reason">Раздел «${UI.escapeHtml(UI.SECTION_LABELS[ctx.section])}» доступен в полной версии.</p>`
-      : `<p class="paywall-reason">В бесплатной версии в разделе «${UI.escapeHtml(UI.SECTION_LABELS[ctx.section])}» можно хранить до ${ctx.limit} ${plural(ctx.limit, 'записи', 'записей', 'записей')}. Чтобы добавлять без ограничений - откройте полную версию.</p>`)
+      // 1.3.3 (опыт «Пенсии» №112: одно число - одно место): лимит раздела уже стоит в таблице
+      // «Бесплатно доступно» ниже - в строке причины его не повторяем.
+      : `<p class="paywall-reason">В бесплатной версии раздел «${UI.escapeHtml(UI.SECTION_LABELS[ctx.section])}» заполнен. Чтобы добавлять записи без ограничений - откройте полную версию.</p>`)
     : '';
   const freeRows = Store.SECTIONS
     .map((s) => `<li><span>${UI.escapeHtml(UI.SECTION_LABELS[s])}</span><b>${Gate.FREE_LIMITS[s]}</b></li>`)
@@ -2559,9 +2804,14 @@ function openPaywall(ctx = {}) {
   // Офлайн-активация лицензионным ключом (1.3.0, как в «Хомяке»): только поле и кнопка. НИКАКИХ
   // ссылок, адресов и контактов «где купить» - требование Алексея и модерации RuStore
   // (тест tests/store-130.test.mjs ловит ссылки/контакты в окне).
+  // 1.3.3 (как в «Хомяке» 1.0.6): новички путали «Восстановить покупку» с «Купить» - в основном
+  // ряду только «Закрыть» и «Купить за …»; ниже тихий ряд «Есть ключ» (раскрывает поле ключа,
+  // aria-expanded) и «Восстановить покупку». Таблица «Бесплатно доступно» - в самом низу: на
+  // 360x640 окно до «Купить» помещается без прокрутки. Заслон - tests/paywall-layout-133.test.mjs.
   m.innerHTML = `
     <h3>Полная версия - весь сейф без границ</h3>
     <p class="paywall-lead">Один платёж навсегда, не подписка. Работает офлайн.</p>
+    <div class="pw-price-slot">${pricePromoHtml(priceShow())}</div>
     ${reason}
     <ul class="paywall-benefits">
       <li>Без лимитов на число записей во всех разделах</li>
@@ -2569,12 +2819,16 @@ function openPaywall(ctx = {}) {
       <li>Все данные только на вашем телефоне, под мастер-паролем</li>
       <li>Вы поддерживаете развитие приложения</li>
     </ul>
-    <div class="paywall-free">
-      <div class="paywall-free-h">Бесплатно доступно:</div>
-      <ul class="paywall-free-list">${freeRows}</ul>
+    <div class="pw-hint" aria-live="polite"></div>
+    <div class="modal-actions paywall-actions">
+      <button type="button" class="cancel pw-close">Закрыть</button>
+      <button type="button" class="save pw-buy">Купить за ${priceText()}</button>
     </div>
-    <div class="paywall-license">
-      <div class="paywall-license-h">Уже есть ключ? Активируйте его</div>
+    <div class="pw-more">
+      <button type="button" class="pw-keytg" aria-expanded="false" aria-controls="pwKeyBox">Есть ключ</button>
+      <button type="button" class="pw-restore">Восстановить покупку</button>
+    </div>
+    <div class="paywall-license" id="pwKeyBox" hidden>
       <div class="paywall-license-sub">Лицензионный ключ приобретается отдельно, вне приложения.</div>
       <div class="paywall-license-row">
         <input type="text" class="pw-key" placeholder="Вставьте ключ" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" inputmode="text">
@@ -2582,16 +2836,39 @@ function openPaywall(ctx = {}) {
       </div>
       <p class="pw-key-msg" hidden></p>
     </div>
-    <div class="modal-actions paywall-actions">
-      <button type="button" class="cancel pw-close">Закрыть</button>
-      <button type="button" class="pw-restore">Восстановить покупку</button>
-      <button type="button" class="save pw-buy">Купить за ${Gate.PRO_PRICE_RUB} ₽</button>
+    <div class="paywall-free">
+      <div class="paywall-free-h">Бесплатно доступно:</div>
+      <ul class="paywall-free-list">${freeRows}</ul>
     </div>`;
-  const done = () => { document.removeEventListener('keydown', onKey, true); back.remove(); };
+  const done = () => { document.removeEventListener('keydown', onKey, true); back.remove(); if (payUi === ui) payUi = null; };
   const onKey = (e) => { if (e.key === 'Escape' && isTopModal(back)) { e.stopPropagation(); done(); } };
   const buyBtn = m.querySelector('.pw-buy');
   const restoreBtn = m.querySelector('.pw-restore');
-  const setBusy = (b) => { buyBtn.disabled = b; restoreBtn.disabled = b; };
+  const hintEl = m.querySelector('.pw-hint');
+  // Кнопки заняты, пока идёт проверка или шторка (purchaseFlow). Ждём прошлую оплату («в обработке») -
+  // «Купить» открыта: нажатие спросит «Подождать» / «Оплатить снова», вторую шторку молча не откроет.
+  const refreshBtns = () => {
+    const st = purchaseFlow.state();
+    const busy = st !== 'idle' && st !== 'pending';
+    buyBtn.disabled = busy;
+    restoreBtn.disabled = st !== 'idle';
+  };
+  // Строки над кнопками (1.3.3): совет про СБП; по проверке до шторки - про вход в RuStore или
+  // причина, почему оплата недоступна. Вне RuStore (браузер релиза) строк нет - там своё окно.
+  const showHint = (pc) => {
+    let kind = Payment.PAY_UNAVAILABLE; try { kind = getAdapter().kind; } catch (e) {}
+    const lines = kind === Payment.PAY_UNAVAILABLE ? [] : payHintLines(pc);
+    hintEl.innerHTML = lines.map((t) => `<p>${UI.escapeHtml(t)}</p>`).join('');
+    hintEl.hidden = lines.length === 0;
+  };
+  showHint(null);
+  precheckPay().then((pc) => { if (pc && document.body.contains(m)) showHint(pc); });
+  // Цена из магазина (1.3.3): пришла - обновляем кнопку и меню и блок акции (gate.js priceDisplay).
+  // М1: обычно уже спрошена при входе в сейф - тот же ответ; не удалось тогда - спрашиваем ещё раз.
+  loadStorePrice({ retry: true }).then((t) => {
+    if (document.body.contains(m)) { buyBtn.textContent = 'Купить за ' + t; m.querySelector('.pw-price-slot').innerHTML = pricePromoHtml(priceShow()); }
+    try { updateMenuInfo(); } catch (e) {}
+  });
   const PAY_UNAVAILABLE_MSG = 'Оплата и восстановление покупки работают только в приложении, установленном из RuStore. Есть лицензионный ключ - активируйте его в этом окне.';
   // okMsg — тексты статусов на «вы» (задание п.24). По умолчанию — успех покупки/активации ключа.
   // failMsg (A6): что сказать, если оплата/ключ ПРОШЛИ, а запись на устройство упала. Это НЕ
@@ -2614,35 +2891,43 @@ function openPaywall(ctx = {}) {
     toast(okMsg || 'Полный доступ открыт. Спасибо, что поддержали разработку!');
     if (typeof ctx.reopen === 'function') ctx.reopen();
   };
-  // Покупка (ревью 1.3.0, п.2): итог считает pay.js runPurchase. Уже куплено в этом аккаунте
-  // RuStore - не «платёж не прошёл», а путь «Восстановить покупку» (Pro восстанавливается сразу).
-  // При сбое НЕ обещаем, что оплата не списалась - этого мы не знаем.
-  buyBtn.onclick = async () => {
-    setBusy(true);
-    const r = await runPurchase(getAdapter());
-    if (r.kind === 'ok') { await unlock({ source: getAdapter().kind, purchaseId: r.purchaseId }, 'Полный доступ открыт. Спасибо, что поддержали разработку!'); return; }
-    if (r.kind === 'owned') { await unlock({ source: getAdapter().kind, purchaseId: null }, 'Полная версия уже куплена в этом аккаунте RuStore. Покупка восстановлена, платить ещё раз не нужно.', 'Покупка найдена, но не записалась на устройство. Нажмите «Восстановить покупку» ещё раз.'); return; }
-    if (r.kind === 'cancelled') toast('Покупка отменена');
-    else if (r.kind === 'unavailable') await dlgAlert(PAY_UNAVAILABLE_MSG, 'Оплата');
-    else await dlgAlert('Платёж не прошёл. Если деньги всё же списались - нажмите «Восстановить покупку».', 'Оплата');
-    setBusy(false);
+  // Покупка (1.3.3, В1): ход - purchase.js (снимок владения, проверка до шторки, сессия покупки в плагине,
+  // «в обработке» - ожидание с опросом). Итог - showPayResult. Уже куплено в этом аккаунте - доступ сразу,
+  // без повторной оплаты. При сбое НЕ обещаем, что оплата не списалась - этого мы не знаем.
+  // Отметку выдачи (ACKNOWLEDGED) ставит purchase.js при выдаче доступа.
+  const RESAVE = 'Покупка найдена, но сохранить её в «Сейфе» не получилось. Нажмите «Восстановить покупку» ещё раз.';
+  const ui = {
+    granted: async (r) => {
+      const info = { source: getAdapter().kind, purchaseId: (r && r.purchaseId) || null };
+      if (r && r.kind === 'owned') await unlock(info, PAY_TEXT.ownedAlready, RESAVE);
+      else if (r && r.kind === 'restored') await unlock(info, PAY_TEXT.restored, RESAVE);
+      else await unlock(info, PAY_TEXT.thanks);
+    },
+    hint: (pc) => { if (document.body.contains(m) && pc) showHint(pc); },
+    idle: () => { if (document.body.contains(m)) refreshBtns(); },
   };
-  restoreBtn.onclick = async () => {
-    setBusy(true);
-    try {
-      const r = await getAdapter().restore();
-      if (r && r.error === Payment.PAY_UNAVAILABLE) { await dlgAlert(PAY_UNAVAILABLE_MSG, 'Восстановление'); setBusy(false); return; }
-      if (r && r.ok && r.purchased) { await unlock({ source: getAdapter().kind, purchaseId: null }, 'Покупка восстановлена. Полный доступ снова открыт.', 'Покупка найдена, но не записалась на устройство. Нажмите «Восстановить покупку» ещё раз.'); return; }
-      await dlgAlert('В этом аккаунте RuStore покупка не найдена. Проверьте, что вошли в тот же аккаунт, которым покупали. Есть лицензионный ключ - активируйте его в этом окне.', 'Восстановление');
-    } catch (e) {
-      await dlgAlert('Не удалось проверить покупку. Проверьте связь и попробуйте ещё раз.', 'Восстановление');
-    }
-    setBusy(false);
+  payUi = ui;
+  buyBtn.onclick = () => {
+    if (getAdapter().kind === Payment.PAY_UNAVAILABLE) { dlgAlert(PAY_UNAVAILABLE_MSG, 'Оплата'); return; }
+    startBuy();
+  };
+  refreshBtns();   // окно открыли заново, пока шторка ещё не ответила
+  restoreBtn.onclick = () => {
+    if (getAdapter().kind === Payment.PAY_UNAVAILABLE) { dlgAlert(PAY_UNAVAILABLE_MSG, 'Восстановление'); return; }
+    startRestore();
   };
   // Активация Полной версии лицензионным ключом (8f заход 2 п.9): офлайн-проверка подписи
   // (в приложение вшит публичный ключ ECDSA P-256; ключ = подписанный токен). Валидный →
   // Pro тем же путём, что покупка. Ключ нельзя подделать, вытащив что-либо из APK.
   const keyInput = m.querySelector('.pw-key');
+  const keyTg = m.querySelector('.pw-keytg');
+  const keyBox = m.querySelector('.paywall-license');
+  keyTg.onclick = () => {
+    const open = keyBox.hidden;
+    keyBox.hidden = !open;
+    keyTg.setAttribute('aria-expanded', open ? 'true' : 'false');
+    if (open) { try { keyBox.scrollIntoView({ block: 'nearest' }); } catch (e) {} }
+  };
   const activateBtn = m.querySelector('.pw-activate');
   const keyMsg = m.querySelector('.pw-key-msg');
   const showKeyMsg = (text, bad) => { keyMsg.hidden = false; keyMsg.textContent = text; keyMsg.classList.toggle('bad', !!bad); };
@@ -2668,7 +2953,35 @@ function openPaywall(ctx = {}) {
   closeOnBackdrop(back, done);
   document.addEventListener('keydown', onKey, true);
   back.appendChild(m); document.body.appendChild(back);
-  buyBtn.focus();
+  // 1.3.3 (мелочь из прохода 1.3.2): окно открывается С НАЧАЛА - заголовок и объяснение видны.
+  // Раньше фокус на «Купить» прокручивал окно к кнопке, и верх уходил за край.
+  try { buyBtn.focus({ preventScroll: true }); } catch (e) {}
+  m.scrollTop = 0;
+}
+
+// Проверка до шторки для строки пейволла (вход в RuStore, доступность оплаты). null - не знаем.
+function precheckPay() {
+  let a; try { a = getAdapter(); } catch (e) { return Promise.resolve(null); }
+  return payPrecheck(a).catch(() => null);
+}
+
+// Окно неуспеха покупки (1.3.3) в гамме приложения: что случилось своими словами, совет про СБП/VPN,
+// кнопки «Позже» / «Попробовать снова» (или «Восстановить покупку» - она в самом окне). Пейволл под
+// окном остаётся открытым: человек не теряет экран покупки. «Деньги не списаны» не обещаем:
+// владение к этому моменту уже перепроверено - если RuStore видит оплату, человек получил «Готово».
+async function openPayFail(reason, act = {}) {
+  const f = failDialog(reason);
+  let buttons;
+  if (f.restore) buttons = [{ label: 'Позже', value: 'later', cancel: true, kind: 'cancel' }, { label: 'Восстановить покупку', value: 'restore', primary: true, kind: 'save' }];
+  else if (f.payagain) buttons = [{ label: 'Подождать', value: 'later', cancel: true, kind: 'cancel' }, { label: 'Оплатить снова', value: 'again', primary: true, kind: 'save' }];
+  else if (f.openStore) buttons = [{ label: 'Позже', value: 'later', cancel: true, kind: 'cancel' }, { label: 'Открыть RuStore', value: 'store', primary: true, kind: 'save' }];
+  else if (f.retry) buttons = [{ label: 'Позже', value: 'later', cancel: true, kind: 'cancel' }, { label: 'Попробовать снова', value: 'retry', primary: true, kind: 'save' }];
+  else buttons = [{ label: 'Понятно', value: 'later', cancel: true, primary: true, kind: 'save' }];
+  const v = await appDialog({ title: f.title, message: f.text, note: f.vpn ? PAY_TEXT.vpn : '', buttons, cls: 'pay-fail' });
+  if (v === 'retry' && act.retry) act.retry();
+  else if (v === 'restore' && act.restore) act.restore();
+  else if (v === 'again' && act.again) act.again();
+  else if (v === 'store' && act.store) act.store();
 }
 
 // ---------- разворот карточки на месте (заход 2 п.6) ----------
@@ -2772,8 +3085,8 @@ function openEditor(section, entry) {
   iconRow.className = 'form-row icon-row';
   // Подпись «по разделу/своя иконка» убрана (заход 2 п.13): чип иконки + стрелка, без текста.
   iconRow.innerHTML = `<span>Иконка</span>
-    <button type="button" class="picker-btn icon-pick-btn">
-      <span class="icon-pick-chip"></span>
+    <button type="button" class="picker-btn icon-pick-btn" aria-label="Выбрать иконку записи" title="Выбрать иконку записи">
+      <span class="icon-pick-chip" aria-hidden="true"></span>
       <span class="picker-arrow" aria-hidden="true">▾</span></button>`;
   const iconChip = iconRow.querySelector('.icon-pick-chip');
   const paintIconChip = () => {
@@ -3457,27 +3770,43 @@ function startAutoLock() {
   } catch (e) {}
 }
 let bgAt = 0;    // метка ухода в фон (мс), 0 — на переднем плане
-// Флаг «сейчас открыто НАШЕ системное окно» (сохранение копии, выбор файла, камера). Пока он
-// поднят, уход в фон не считается уходом пользователя и не запирает сейф (корень косяка #17).
-let sysWindowOpen = false;
+// Флаг «сейчас открыто НАШЕ системное окно» (сохранение копии, выбор файла, камера, печать, оплата).
+// Пока он поднят, уход в фон не запирает сейф МГНОВЕННО (корень косяка #17), но окно автоблока
+// по времени действует всегда (баг 1.3.3: печать → «Домой» 6 мин → возврат без входа).
+const sysWin = createSysWindow();
 // Обёртка вокруг вызова, открывающего системное окно: поднимает флаг на время ожидания и
 // снимает его вместе с меткой фона, когда окно закрылось (успех, отмена или ошибка).
-async function withSystemWindow(fn) {
-  sysWindowOpen = true;
-  try { return await fn(); }
-  finally { sysWindowOpen = false; bgAt = 0; }
+// opts.holdAutoLock (М5, покупка): ещё и таймер бездействия стоит, пока открыта шторка RuStore / банк -
+// иначе долгая оплата (новая карта, VK ID, 3DS) запирала сейф по таймеру. Окно автоблока в ФОНЕ при этом
+// действует (баг 1.3.3): в банке дольше него - запрём при возврате, Pro после входа - autoRestoreQuietly.
+// opts.untilForeground (ревью 1.3.3 М1, печать): флаг держится и после ответа плагина, пока приложение не
+// вернётся на передний план; метку фона обнуляем, только когда приложение уже на переднем плане.
+async function withSystemWindow(fn, opts = {}) {
+  const hold = opts.holdAutoLock === true && !!autoLock;
+  if (hold) autoLock.disarm();
+  try { return await sysWin.run(fn, { untilForeground: opts.untilForeground === true }); }
+  finally { if (!sysWin.isOpen() && !sysWin.isHidden()) bgAt = 0; if (hold && autoLock && state.vault && !locking) autoLock.arm(); }
 }
+// Баг 1.3.3 (проход на телефоне 27.10, REPORT п.8): здесь стояло «if (sysWin.isOpen()) return;» - при открытом
+// системном окне (печать, сохранение/выбор файла, камера, оплата) метка ухода не ставилась, и из окна
+// можно было уйти «Домой» на сколько угодно: при возврате сейф открыт без входа. Теперь метку ставим
+// всегда: момент открытия системного окна = начало «фона». Мгновенно не запираем никогда, а дольше окна
+// автоблока - запрём при возврате (foregroundDecision), даже если окно было открыто. Долгая оплата в банке:
+// сейф запрётся, а покупку после входа подхватит autoRestoreQuietly (оплачено → Pro; «в обработке» → ожидание).
 function onBackground() {
-  if (sysWindowOpen) return;              // наше системное окно — это не уход пользователя
+  sysWin.background();
   if (!autoLock || !state.vault) return;
   if (!bgAt) bgAt = Date.now();
 }
 function onForeground() {
+  // 1.3.3: возврат из банка/RuStore по иконке - шторка могла не ответить; перепроверить покупку
+  try { purchaseFlow.resume(); } catch (e) {}
+  const sysOpen = sysWin.isOpen(); sysWin.foreground();   // решение - по состоянию ДО отпускания окна печати
   if (!autoLock || !state.vault) { bgAt = 0; return; }   // не разблокировано/уже заперто
   const away = bgAt; bgAt = 0;
   // B3: очистка буфера по таймеру в фоне могла не пройти (WebView без фокуса) - повторяем сейчас.
   try { clip.retryIfFailed().catch(() => {}); } catch (e) {}
-  const dec = foregroundDecision({ systemWindowOpen: sysWindowOpen, backgroundedAt: away, now: Date.now(), autolockMs: autoLockMinutes() * 60 * 1000 });
+  const dec = foregroundDecision({ systemWindowOpen: sysOpen, backgroundedAt: away, now: Date.now(), autolockMs: autoLockMinutes() * 60 * 1000 });
   if (dec === 'lock') { lockNow(); return; }
   autoLock.arm();   // в пределах окна: тот же экран остаётся, таймер бездействия взводим заново
 }
@@ -3542,6 +3871,22 @@ window.addEventListener('unhandledrejection', (e) => {
   }
 });
 
+// 1.3.3: окна «Архива для близких» получают готовые окна и запись приложения (свои не изобретают).
+initArchiveUI({
+  get state() { return state; },
+  saveFile, toast, dlgAlert, dlgConfirm, styledConfirm, stylePicker, closeOnBackdrop, isTopModal, haptic,
+  saveErrorLabel, requireRealVault, withSystemWindow, lsGet,
+  schema: UI.FIELD_SCHEMA,
+  isFull: () => !!(hasFullAccess()),
+  freeLimits: Gate.FREE_LIMITS,
+  // пароль файла не должен быть мастер-паролем: снимаем обёртку ключа (pwWrap) этим паролем - как вход,
+  // но без расшифровки всего сейфа (ревью 1.3.3 М6); и в NFC-форме: файл шифруется паролем в NFC
+  isMasterPassword: async (pw) => (await opensVaultKey(state.file, pw, C)) || (pw.normalize('NFC') !== pw && opensVaultKey(state.file, pw.normalize('NFC'), C)),
+});
 applyTheme(currentTheme());   // тема из настроек до первой отрисовки — без вспышки
+// 1.3.3: крупный системный шрифт - html[data-fz] по масштабу системы (плагин FontScale) или щупу
+try { initFontZoom(document, window, (window.NativePlugins && window.NativePlugins.FontScale) || null); } catch (e) {}
 boot();
 export { state, saveFile, toast };   // toast - для QA 0a (tools/qa-save-all.mjs)
+export { maybeRemindBackup };        // QA 1.3.3 (tools/qa-133-capture.mjs): напоминание о копии
+export { openArchive, maybeRemindArchive };   // QA 1.3.3: экраны «Архива для близких»

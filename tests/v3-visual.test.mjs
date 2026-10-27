@@ -62,8 +62,7 @@ test('симметрия витрины: нечётная последняя п�
     'нужно правило симметрии для витрины (:last-child:nth-child(odd) -> span 2)');
 });
 
-test('порядок пунктов меню в index.html: согласованные пары + Заблокировать последней', () => {
+test('порядок пунктов меню в index.html: пары Алексея 27.10.2026 (1.3.3), без «Обновления» и «Заблокировать»', () => {
   const ids = [...HTML.matchAll(/<button class="mi[^"]*" id="(m\w+)"/g)].map((m) => m[1]);
-  assert.deepEqual(ids, ['mBio', 'mKey', 'mBackup', 'mUpdate', 'mTheme', 'mSections', 'mPro', 'mAbout', 'mLock']);
-  assert.equal(ids[ids.length - 1], 'mLock', '«Заблокировать» - последняя (широкая) плитка');
+  assert.deepEqual(ids, ['mBio', 'mKey', 'mTheme', 'mSections', 'mBackup', 'mArchive', 'mPro', 'mAbout']);
 });

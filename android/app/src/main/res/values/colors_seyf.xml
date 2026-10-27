@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 1.3.3: цвет системных поверхностей «Сейфа» = цвет фона (переменная bg) тёмной темы (www/css/app.css) и фон иконок
+         лаунчера. Им залиты заставка (tools/make-splash.py), фон окна до загрузки WebView и сам WebView
+         (capacitor.config.json backgroundColor) - белой вспышки при запуске нет. Сверяет tests/splash-133.test.mjs. -->
+    <color name="seyf_bg">#0F1F24</color>
+</resources>

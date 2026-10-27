@@ -30,7 +30,69 @@ export const FREE_LIMITS = {
 };
 
 // Цена полной версии (разовая покупка через RuStore Pay). Одно место для UI и текстов.
+// Обычная цена: с ней сравнивается цена из магазина, она же зачёркнута в период акции.
 export const PRO_PRICE_RUB = 990;
+
+// Акция (решение Алексея 22.10.2026): полная версия 690 ₽ вместо 990 ₽ до 31 декабря 2026
+// включительно, по локальной дате телефона. Цену товара в Консоли RuStore Алексей ставит 690 в
+// день выхода 1.3.3 и возвращает 990 1 января 2027. Показываем ФАКТИЧЕСКУЮ цену магазина:
+// PROMO_PRICE_RUB - только запасная, когда магазин цену не отдал (нет сети/RuStore) в период
+// акции. После PROMO_END слово «акция» не показываем, даже если в магазине ещё старая цена.
+export const PROMO_PRICE_RUB = 690;
+export const PROMO_END = Object.freeze({ year: 2026, month: 12, day: 31 });   // последний день, включительно
+
+const MONTHS_GEN = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа',
+  'сентября', 'октября', 'ноября', 'декабря'];
+const NBSP = '\u00a0';
+
+// Идёт ли акция в эту локальную дату (время суток не важно: весь последний день - акция).
+export function promoActive(now = new Date()) {
+  const d = now instanceof Date ? now : new Date(now);
+  if (Number.isNaN(d.getTime())) return false;
+  const a = d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate();
+  const b = PROMO_END.year * 10000 + PROMO_END.month * 100 + PROMO_END.day;
+  return a <= b;
+}
+
+// «990 ₽» с неразрывными пробелами (разряды и перед ₽).
+export function rub(n) {
+  return String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, NBSP) + NBSP + '₽';
+}
+
+// Подпись акции: «Акция до 31 декабря» (из PROMO_END, не отдельной строкой-копией).
+export function promoNote() {
+  return 'Акция до ' + PROMO_END.day + NBSP + MONTHS_GEN[PROMO_END.month - 1];
+}
+
+// Что показать на месте цены. storeRub - цена из магазина в рублях (число) или null (не пришла).
+// → { price: число, old: число|null (зачёркнутая обычная), promo: bool }
+//   магазин дешевле обычной и акция идёт → старая зачёркнута, новая из магазина, «акция»;
+//   магазин = обычной или акция прошла → обычный вид, цена магазина;
+//   магазина нет: в акцию - PROMO_PRICE_RUB с пометкой акции, после - PRO_PRICE_RUB.
+export function priceView(storeRub, now = new Date()) {
+  const active = promoActive(now);
+  const has = typeof storeRub === 'number' && Number.isFinite(storeRub) && storeRub > 0;
+  if (!has) return active
+    ? { price: PROMO_PRICE_RUB, old: PRO_PRICE_RUB, promo: true }
+    : { price: PRO_PRICE_RUB, old: null, promo: false };
+  const promo = active && storeRub < PRO_PRICE_RUB;
+  return { price: storeRub, old: promo ? PRO_PRICE_RUB : null, promo };
+}
+
+// Подписи цены для экрана (окно «Полная версия», меню). storeRub - число из магазина (pay.js
+// priceRub) или null, storeText - та же цена в виде «690 ₽» (pay.js formatPrice) или null.
+// → { now: «690 ₽», old: «990 ₽»|null (зачеркнуть), note: «Акция до 31 декабря»|null }.
+// Цена магазина в незнакомом виде (не рубли) - показываем как пришла, без акции.
+export function priceDisplay(storeRub, storeText, now = new Date()) {
+  const has = typeof storeRub === 'number' && Number.isFinite(storeRub) && storeRub > 0;
+  if (!has && storeText) return { now: String(storeText), old: null, note: null };
+  const v = priceView(has ? storeRub : null, now);
+  return {
+    now: has && storeText ? String(storeText) : rub(v.price),
+    old: v.old ? rub(v.old) : null,
+    note: v.promo ? promoNote() : null,
+  };
+}
 
 // Источники отметки Pro, которые признаёт боевая (не FULL) сборка. Одно место.
 export const PRO_SOURCES = Object.freeze(['rustore', 'license']);

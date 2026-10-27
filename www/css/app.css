@@ -766,6 +766,15 @@ button { transition: background .15s, color .15s, border-color .15s, filter .15s
 /* ---------- полная версия: paywall ---------- */
 .modal.paywall { width: min(460px, 92vw); }
 .paywall-lead { color: var(--muted); font-size: 13.5px; margin: 0 0 12px; }
+/* акция 22.10.2026 (до 31.12.2026): обычная цена зачёркнута, рядом цена магазина и срок акции.
+   Блок есть только в акцию (app.js pricePromoHtml); после - обычный вид окна. */
+.pw-price {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; margin: 0 0 14px;
+  padding: 10px 14px; background: var(--teal-soft); border-radius: var(--r-sm);
+}
+.pw-price-old { color: var(--muted); font-size: 14px; text-decoration: line-through; text-decoration-thickness: 1.5px; white-space: nowrap; }
+.pw-price-now { color: var(--ink-strong); font-size: 20px; font-weight: 700; white-space: nowrap; }
+.pw-price-note { color: var(--teal); font-size: 12.5px; font-weight: 600; white-space: nowrap; }
 .paywall-reason {
   background: var(--amber-soft); border: 1px solid color-mix(in srgb, var(--amber) 32%, var(--line));
   color: var(--ink); font-size: 13px; line-height: 1.5; border-radius: var(--r-sm); padding: 12px 14px; margin: 0 0 14px;
@@ -791,17 +800,40 @@ button { transition: background .15s, color .15s, border-color .15s, filter .15s
   border-radius: var(--r-sm); color: var(--ink); font-size: 13px; font-family: var(--mono);
 }
 .paywall-license-row .pw-key:focus { border-color: var(--teal); outline: none; }
-.paywall-license-row .pw-activate { white-space: nowrap; padding: 10px 14px; }
+.paywall-license-row .pw-activate { white-space: nowrap; padding: 10px 14px; background: var(--teal); border: 0; color: var(--on-accent); font-weight: 700; border-radius: var(--r-sm); cursor: pointer; font-size: 13.5px; }
 .paywall-license-row .pw-activate:disabled { opacity: .5; cursor: default; }
 .pw-key-msg { margin: 8px 0 0; font-size: 12.5px; color: var(--muted); }
 .pw-key-msg.bad { color: var(--danger); }
+/* 1.3.3: строка над кнопками покупки - совет про СБП / вход в RuStore / причина недоступности */
+.pw-hint { margin: 14px 0 0; color: var(--muted); font-size: 12.5px; line-height: 1.45; }
+.pw-hint p { margin: 0; }
+.pw-hint p + p { margin-top: 4px; }
+/* 1.3.3: вторая строка окна (совет про VPN в окне неуспеха оплаты) */
+.confirm-note { margin-top: 10px; font-size: 13px; }
 .paywall-actions { flex-wrap: wrap; }
-.paywall-actions .pw-restore {
-  background: transparent; border: 1px solid var(--line); color: var(--ink); border-radius: var(--r-sm);
-  padding: 11px 16px; cursor: pointer; font-size: 13.5px;
+/* 1.3.3 (как в «Хомяке»): «Есть ключ» (раскрывашка со стрелкой) и «Восстановить покупку» -
+   тихий ряд мелких кнопок под основными, чтобы новичок не путал «Восстановить» с «Купить».
+   Крупный шрифт: не влезают в строку - переносятся на вторую, подпись не режется. */
+.pw-more { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 0; padding-top: 10px; border-top: 1px solid var(--line); }
+.pw-more button {
+  flex: 1 1 auto; min-height: 40px; white-space: nowrap; display: inline-flex; align-items: center; justify-content: center;
+  background: transparent; border: 1px solid var(--line); color: var(--muted); border-radius: var(--r-sm);
+  padding: 8px 6px; cursor: pointer; font-size: 12.5px;
 }
-.paywall-actions .pw-restore:hover { border-color: var(--teal); color: var(--teal); }
+.pw-more button:hover { border-color: var(--teal); color: var(--teal); }
+.pw-more button:disabled { opacity: .5; cursor: default; }
+.pw-keytg::after { content: ""; flex: none; width: 6px; height: 6px; margin: 0 0 3px 8px; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(45deg); transition: transform .2s; }
+.pw-keytg[aria-expanded="true"]::after { transform: rotate(-135deg); margin-bottom: -3px; }
+@media (prefers-reduced-motion: reduce) { .pw-keytg::after { transition: none; } }
 .paywall-actions button:disabled { opacity: .5; cursor: default; }
+/* 1.3.3: на телефоне «Закрыть» и «Купить» - в одну строку (не столбиком, как в других окнах):
+   экономит высоту, «Купить» видна без прокрутки на 360x640. Не влезает (крупный шрифт) - перенос. */
+@media (max-width: 640px) {
+  .paywall-actions { flex-direction: row; align-items: stretch; }
+  .paywall-actions > .pw-close { width: auto; flex: 1 1 auto; }
+  .paywall-actions > .pw-buy { width: auto; flex: 2 1 auto; white-space: nowrap; }
+}
+.paywall-license + .paywall-free, .pw-more + .paywall-free { margin-top: 12px; }
 
 /* ==================================================================================
    Мобильный оверхол v0.6 (спека 8b): чипы-разделы, FAB, drawer-меню, детальный
@@ -993,7 +1025,7 @@ button { transition: background .15s, color .15s, border-color .15s, filter .15s
 }
 /* v4: цветовые акценты плиток меню (мягкая иконка на тонированном чипе своего цвета, line-стиль
    как в «Хомяке»). Читаются в тёмной и светлой теме (токены --mi-* заданы под каждую тему).
-   «Заблокировать» (.mi-lock) сохраняет свой красный акцент - см. ниже. */
+   1.3.3: красной плитки «Заблокировать» в меню больше нет (замок в шапке). */
 .mi.c-teal   .mi-ic { color: var(--mi-teal);   background: color-mix(in srgb, var(--mi-teal) 16%, transparent); }
 .mi.c-amber  .mi-ic,
 .mi.c-gold   .mi-ic { color: var(--mi-amber);  background: color-mix(in srgb, var(--mi-amber) 20%, transparent); }
@@ -1005,16 +1037,10 @@ button { transition: background .15s, color .15s, border-color .15s, filter .15s
 .mi-t { flex: 0 0 auto; font-weight: 700; font-size: 13.5px; line-height: 1.25; }
 /* пояснения не показываем в плиточном меню (спека v3-визуал: иконка + короткая подпись) */
 .mi-s { display: none; }
-/* Правило симметрии: нечётная последняя плитка тянется на всю ширину (здесь - «Заблокировать»,
-   9-я из 9). Тот же приём, что на витрине. */
+/* Правило симметрии: нечётная последняя плитка тянется на всю ширину (при чётных 8 плитках 1.3.3
+   не срабатывает, держим на случай нечётного набора). Тот же приём, что на витрине. */
 .menu-list .mi:last-child:nth-child(odd) { grid-column: 1 / -1; }
-/* «Заблокировать» - акцентная широкая плитка: красный кант, иконка и подпись в строку по центру. */
-.mi-lock { border-color: color-mix(in srgb, var(--danger) 40%, var(--line)); }
-/* 1.2.16: «Заблокировать» вынесена из сетки - обычная кнопка внизу меню-боди (не растягивается
-   grid-auto-rows:1fr). Полная ширина, фиксированная нормальная высота, отступ сверху. */
-.mi-lock.mi { flex: 0 0 auto; flex-direction: row; width: 100%; min-height: 52px; height: 52px; padding: 12px; margin-top: 10px; }
-.mi-lock .mi-ic { color: var(--danger); background: var(--clay-soft); }
-.mi-lock .mi-t { color: var(--danger); }
+/* 1.3.3: «Заблокировать» из меню убрана - замок в шапке главного экрана (#lockBtn в .topbar). */
 /* Светлое меню — фон дневной палитры «Хомяка» (лавандовый), НЕ белый: плитки белые сверху. */
 :root[data-theme="nord"] #menu { background: var(--bg); }
 :root[data-theme="nord"] .menu-head { background: transparent; }
@@ -1027,9 +1053,9 @@ button { transition: background .15s, color .15s, border-color .15s, filter .15s
 .upd-dlg .upd-hint { color: var(--faint); font-size: 12.5px; }
 .upd-dlg .upd-n { color: var(--ink); white-space: pre-wrap; }
 .upd-dlg .upd-step { color: var(--teal); font-weight: 600; }
-/* мерцающий значок «есть обновление» на плитке меню (18.5, как в «Хомяке») */
-#mUpdate.has-upd .mi-ic { position: relative; }
-#mUpdate.has-upd .mi-ic::after {
+/* мерцающий значок «есть обновление» на плитке меню (18.5, как в «Хомяке»); 1.3.3 - на «О приложении» */
+#mAbout.has-upd .mi-ic { position: relative; }
+#mAbout.has-upd .mi-ic::after {
   content: ""; position: absolute; top: -2px; right: -2px; width: 8px; height: 8px;
   border-radius: 50%; background: var(--amber); box-shadow: 0 0 6px var(--amber);
   animation: seyf-upd-blink 1.4s ease-in-out infinite;
@@ -1039,7 +1065,7 @@ button { transition: background .15s, color .15s, border-color .15s, filter .15s
   50% { opacity: .35; transform: scale(.72); box-shadow: 0 0 2px var(--amber); }
 }
 @media (prefers-reduced-motion: reduce) {
-  #mUpdate.has-upd .mi-ic::after { animation: none; }
+  #mAbout.has-upd .mi-ic::after { animation: none; }
 }
 
 /* ==================================================================================
@@ -1099,12 +1125,15 @@ button { transition: background .15s, color .15s, border-color .15s, filter .15s
 .card-triple .form-row input { padding: 11px 8px; text-align: center; }
 
 /* ---- 8d п.6: seed-слова в ОДИН столбик, ровным списком, скроллятся ---- */
-.seed-words { grid-template-columns: 1fr; gap: 7px; }
-.seed-cell { gap: 8px; }
-.seed-num { width: 22px; font-size: 12px; }
-.seed-word { padding: 10px 11px; }
+/* В3 (адв. ревью 1.3.3): при крупном системном шрифте (200% на 360) поле слова уезжало за правый край -
+   колонка 1fr = minmax(auto, 1fr) растягивалась по природной ширине <input>. minmax(0, 1fr) + min-width:0
+   у ячейки и width:100% у поля держат ряд в ширине окна; номер растёт со шрифтом (2ch), не наезжая на поле. */
+.seed-words { grid-template-columns: minmax(0, 1fr); gap: 7px; }
+.seed-cell { gap: 8px; min-width: 0; }
+.seed-num { width: 2ch; min-width: 22px; font-size: 12px; }
+.seed-word { padding: 10px 11px; width: 100%; }
 @media (max-width: 640px) {
-  .seed-words { grid-template-columns: 1fr; }   /* перекрывает прежние 2 колонки */
+  .seed-words { grid-template-columns: minmax(0, 1fr); }   /* перекрывает прежние 2 колонки */
 }
 
 /* ---- 8d п.12: компактная карточка записи на телефоне ---- */
@@ -1431,6 +1460,15 @@ body.reorder-mode #cards .entry .reorder-move button:disabled { opacity: .3; cur
 .about-name { font-family: var(--font-head); font-weight: 700; font-size: 20px; color: var(--ink-strong); }
 .about-ver { color: var(--muted); font-size: 12.5px; }
 .about-x { margin-left: auto; }
+/* 1.3.3: строка версии + «Проверить» (бывший пункт меню «Обновление»); точка - когда есть новее */
+.about-upd { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; margin-top: 2px; }
+.about-check {
+  min-height: 32px; padding: 4px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--elevated);
+  color: var(--teal); font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer;
+}
+.about-check:hover { border-color: var(--teal); }
+.about-upd.has-upd .about-upd-t { color: var(--amber); }
+.about-upd.has-upd .about-check { background: var(--teal); border-color: var(--teal); color: var(--on-accent); }
 .about-lead { color: var(--ink); font-size: 13.5px; line-height: 1.55; margin: 0 0 14px; }
 .about-sec { color: var(--faint); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; margin: 14px 0 8px; }
 .about-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
@@ -1444,10 +1482,17 @@ body.reorder-mode #cards .entry .reorder-move button:disabled { opacity: .3; cur
   color: var(--ink); padding: 10px 12px; cursor: pointer; font-family: inherit; font-size: 13px;
 }
 .about-link:hover { border-color: var(--teal); color: var(--teal); }
+/* 1.3.3 (крупный шрифт 200%): ссылки не шире окна - длинная подпись обрезается многоточием, а не уводит кнопку за край */
+.about-contacts { grid-template-columns: minmax(0, 1fr); }
+.about-link { min-width: 0; box-sizing: border-box; }
 .about-link-ic { flex: 0 0 auto; color: var(--teal); display: grid; place-items: center; line-height: 0; }
 .about-link-ic svg { display: block; }
 .about-link-t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .about-author { color: var(--ink); font-size: 13px; margin: 12px 0 4px; }
+/* 1.3.3: «Частые вопросы» - раскрывашки со стрелкой (details.disclose, правила - в блоке архива ниже) */
+.about-faq details.disclose { margin-bottom: 6px; }
+.about-faq .disc-b .about-link { margin-top: 8px; width: 100%; max-width: 100%; min-width: 0; box-sizing: border-box; }
+.about-faq .disc-b { min-width: 0; overflow-wrap: anywhere; }
 
 /* ---- 8f B.8: карточки компактнее — плотнее вертикаль на телефоне ---- */
 @media (max-width: 640px) {
@@ -1600,4 +1645,141 @@ body.reorder-mode #cards .entry .reorder-move button:disabled { opacity: .3; cur
   .ob-logo { width: 44px; height: 44px; }
   .ob-list { gap: 6px; }
   .ob-p, .ob-list li { font-size: 13.5px; }
+}
+
+/* 1.3.3: напоминание о резервной копии - галочка «Больше не напоминать» под текстом */
+.backup-remind .remind-off { margin-top: 12px; }
+
+/* ---- 1.3.3: крупный системный шрифт (Android «размер шрифта» 130-200%) ----
+   html[data-fz] ставит js/fontzoom.js: 'l' от 115%, 'xl' от 160%. При 130% раскладка та же (замер
+   tools/qa-133-capture.mjs font: переполнений нет). При 200% на узком экране две колонки плиток не
+   вмещают слова - витрина, меню и таблица «Бесплатно доступно» в один столбец, высота по содержимому
+   (витрина и меню прокручиваются - при таком шрифте это допустимо). */
+#fzProbe { position: absolute; left: -9999px; top: 0; font-size: 100px; line-height: 1; visibility: hidden; pointer-events: none; }
+@media (max-width: 640px) {
+  html[data-fz="xl"] .vitrina { grid-template-columns: 1fr; grid-auto-rows: auto; }
+  html[data-fz="xl"] .vitrina .vtile { flex-direction: row; align-items: center; }
+  html[data-fz="xl"] .menu-list { grid-template-columns: 1fr; grid-auto-rows: auto; flex: 0 0 auto; align-content: start; }
+  html[data-fz="xl"] .mi { flex-direction: row; justify-content: flex-start; text-align: left; min-height: 0; padding: 10px 12px; }
+  html[data-fz="xl"] .paywall-free-list { grid-template-columns: 1fr; }
+}
+@media (max-width: 640px) {
+  html[data-fz="xl"] .mi-t { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+  html[data-fz="xl"] .vtile-name { min-width: 0; overflow-wrap: anywhere; }
+}
+/* 1.3.3: при крупном шрифте (от 115%) плитки меню и витрины растут по содержимому - иначе ряды,
+   поделённые поровну по высоте экрана, сжимаются и значок наезжает на край плитки (замер 130%) */
+html[data-fz] .menu-list { flex: 0 0 auto; grid-auto-rows: auto; align-content: start; }
+html[data-fz] .vitrina { grid-auto-rows: auto; }
+
+/* ---- 1.3.3: «Архив для близких» (js/archive-ui.js) - в существующем дизайне: полноэкранное окно
+   .modal.detail (как редактор), карточки выдачи .backup-card, строки-разделы как «Разделы на витрине»,
+   поля .form-row, выбор - picker-btn/stylePicker, дата - своё окно. Новых цветов нет, только токены. ---- */
+.modal.archive { padding-bottom: 16px; }
+.arc-head .detail-title { min-width: 0; }
+.arc-head .arc-back { margin-left: -6px; background: transparent; border: 0; color: var(--ink); padding: 6px; min-width: 40px; min-height: 40px; cursor: pointer; border-radius: var(--r-sm); }
+.arc-body { overflow-y: auto; overflow-x: hidden; min-height: 0; }
+.arc-intro { color: var(--ink); font-size: 13.5px; line-height: 1.5; margin: 0 0 12px; }
+.arc-issue { padding: 12px 14px; margin-bottom: 8px; }
+.arc-issue .backup-card-ic { width: 40px; height: 40px; }
+.arc-local { color: var(--muted); font-size: 12.5px; line-height: 1.45; margin: 4px 0 0; }
+/* разделы архива - сетка 2 колонки (как плитки меню): 9 разделов в 5 рядов, меньше прокрутки */
+.arc-list { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.arc-list .arc-row:last-child:nth-child(odd) { grid-column: 1 / -1; }
+.arc-items { display: flex; flex-direction: column; gap: 8px; }
+.arc-row, .arc-item {
+  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; min-height: 48px;
+  background: var(--elevated); border: 1px solid var(--line); border-radius: var(--r-sm);
+  padding: 10px 12px; cursor: pointer; font: inherit; color: var(--ink);
+}
+.arc-row:hover, .arc-item:hover { border-color: var(--teal); }
+.arc-row-t { flex: 1; min-width: 0; font-weight: 600; font-size: 14px; line-height: 1.25; overflow-wrap: anywhere; }
+.arc-row-n { flex: 0 0 auto; min-width: 22px; padding: 1px 7px; border-radius: 999px; background: var(--teal-soft); color: var(--teal); font-size: 12px; font-weight: 700; text-align: center; font-variant-numeric: tabular-nums; }
+.arc-item { flex-direction: column; align-items: flex-start; gap: 2px; }
+.arc-item-t { font-weight: 600; font-size: 14px; overflow-wrap: anywhere; }
+.arc-item-s { color: var(--muted); font-size: 12.5px; overflow-wrap: anywhere; }
+.arc-hint { color: var(--muted); font-size: 13px; line-height: 1.5; margin: 0 0 12px; }
+.arc-cap, .arc-note, .arc-empty, .arc-closed { color: var(--muted); font-size: 12.5px; line-height: 1.45; margin: 0 0 8px; }
+.arc-note { margin-top: -6px; }
+.arc-closed { background: var(--amber-soft); color: var(--ink); border-radius: var(--r-sm); padding: 8px 10px; }
+.arc-src { color: var(--ink); font-size: 12.5px; font-weight: 600; margin: 10px 0 4px; }
+.arc-pick {
+  display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 6px 4px; cursor: pointer;
+  color: var(--ink); font-size: 14px; border-bottom: 1px solid var(--line2);
+}
+.arc-pick input { width: 20px; height: 20px; flex: 0 0 auto; accent-color: var(--teal); margin: 0; }
+.arc-pick span { min-width: 0; overflow-wrap: anywhere; }
+.arc-add {
+  width: 100%; min-height: 46px; margin-top: 14px; border-radius: var(--r-sm); cursor: pointer; font: inherit;
+  font-weight: 600; font-size: 14px; color: var(--teal); background: var(--teal-soft);
+  border: 1px dashed color-mix(in srgb, var(--teal) 55%, transparent);
+}
+.arc-seg { display: flex; padding: 3px; border-radius: 999px; background: var(--elevated); border: 1px solid var(--line); margin: 0 0 12px; }
+.arc-seg-b {
+  flex: 1 1 0; min-height: 40px; border: 0; border-radius: 999px; background: transparent; cursor: pointer;
+  color: var(--muted); font: inherit; font-size: 13.5px; font-weight: 600;
+}
+.arc-seg-b.on { background: var(--teal); color: var(--on-accent); }
+.arc-ph { color: var(--faint); }
+.arc-actions { display: flex; gap: 10px; }
+.arc-err { color: var(--danger); font-size: 12.5px; min-height: 1.2em; margin: 0; }
+/* 1.3.3 ревью В2: «Придумать пароль» - кнопка-ссылка в строке подписи поля (окно без прокрутки на 360x640) */
+.arc-pwlab { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.arc-gen { background: none; border: 0; padding: 4px 0; color: var(--teal); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.arc-gen:hover { border-color: var(--teal); color: var(--teal); }
+.arc-printframe { position: fixed; width: 0; height: 0; border: 0; left: -9999px; }
+/* раскрывашка со стрелкой (как details.disclose в «Пенсии»): длинное пояснение - по нажатию */
+details.disclose { background: var(--elevated); border: 1px solid var(--line); border-radius: var(--r-sm); margin: 0 0 10px; }
+details.disclose[open] { border-color: color-mix(in srgb, var(--teal) 55%, var(--line)); }
+details.disclose > summary {
+  list-style: none; display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  min-height: 44px; padding: 8px 12px; cursor: pointer; font-size: 13.5px; font-weight: 600; color: var(--ink);
+}
+details.disclose > summary::-webkit-details-marker { display: none; }
+.disc-arr { flex: none; width: 26px; height: 26px; border-radius: 8px; background: var(--teal-soft); position: relative; }
+.disc-arr::before {
+  content: ""; position: absolute; left: 50%; top: 50%; width: 7px; height: 7px; margin: -6px 0 0 -4px;
+  border-right: 2px solid var(--teal); border-bottom: 2px solid var(--teal); transform: rotate(45deg); transition: transform .15s;
+}
+details.disclose[open] .disc-arr::before { transform: translateY(3px) rotate(-135deg); }
+.disc-b { padding: 0 12px 10px; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.disc-b p { margin: 0 0 8px; }
+.disc-b p:last-child { margin-bottom: 0; }
+.arc-pw-dlg .modal-actions, .arc-pw-dlg .form-row { margin-top: 0; }
+.arc-pw-dlg .modal-actions > .save { white-space: nowrap; }
+.modal.archive .form-row { margin-bottom: 10px; }
+.modal.archive .arc-actions { margin-top: 8px; padding-top: 8px; }
+/* З1: окно «несколько вариантов» - строки пикера с квадратиком-галочкой */
+.arc-multi .arc-cap { margin: -6px 0 10px; }
+.arc-mi { display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 8px 14px; }
+.arc-mi-box { flex: 0 0 auto; width: 20px; height: 20px; border-radius: 5px; border: 2px solid var(--line); background: var(--bg); position: relative; }
+.arc-mi.active .arc-mi-box { background: var(--teal); border-color: var(--teal); }
+.arc-mi.active .arc-mi-box::after {
+  content: ""; position: absolute; left: 5px; top: 1px; width: 5px; height: 10px;
+  border-right: 2px solid var(--on-accent); border-bottom: 2px solid var(--on-accent); transform: rotate(45deg);
+}
+.arc-mi-t { min-width: 0; overflow-wrap: anywhere; }
+.arc-multi .modal-actions { flex-direction: row; }
+.arc-multi .modal-actions > button { flex: 1 1 0; width: auto; }
+/* своё окно даты */
+.modal.arc-date { width: min(380px, 94vw); }
+.dp-head { display: flex; align-items: center; gap: 4px; margin: -6px 0 8px; }
+.dp-head .dp-t { flex: 1; text-align: center; font-weight: 700; color: var(--ink-strong); }
+.dp-nav { min-width: 44px; min-height: 44px; font-size: 24px; line-height: 1; color: var(--teal); background: transparent; border: 0; cursor: pointer; border-radius: var(--r-sm); }
+.dp-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.dp-wd { min-width: 0; overflow: hidden; text-align: center; font-size: 11.5px; color: var(--faint); padding: 2px 0; }
+.dp-day {
+  min-height: 38px; min-width: 0; padding: 0; border-radius: 10px; border: 1px solid transparent; background: var(--elevated);
+  color: var(--ink); font: inherit; font-size: 14px; cursor: pointer; font-variant-numeric: tabular-nums;
+}
+.dp-day:hover { border-color: var(--teal); }
+.dp-day.on { background: var(--teal); color: var(--on-accent); font-weight: 700; }
+@media (max-width: 640px) {
+  /* окно архива - .modal.detail: на телефоне уже во весь экран (правило редактора выше) */
+  .arc-actions, .arc-date .modal-actions, .arc-pw-dlg .modal-actions { flex-direction: row; }
+  .arc-date .modal-actions > button { flex: 1 1 0; width: auto; }
+  .arc-pw-dlg .modal-actions > .cancel { flex: 0 0 auto; width: auto; }
+  .arc-pw-dlg .modal-actions > .save { flex: 1 1 auto; width: auto; }
+  html[data-fz="xl"] .arc-list { grid-template-columns: 1fr; }
+  .arc-actions > button { flex: 1 1 0; width: auto; }
 }

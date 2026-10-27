@@ -63,22 +63,14 @@ test('PRO: openProInfo содержит все согласованные выг
   assert.ok(/Что открыто/.test(body), 'заголовок списка «Что открыто» для PRO');
 });
 
-// ---- п.4: «Заблокировать» вынесена из растянутой сетки и обычной высоты ----
-test('меню: mLock вынесена ИЗ .menu-list (иначе grid-auto-rows:1fr растягивал её)', () => {
+// ---- п.4 (1.2.16) -> 1.3.3: «Заблокировать» в меню больше нет вовсе - замок в шапке главного экрана
+// (заслон - tests/menu-133.test.mjs). Плитки-настройки остаются в .menu-list.
+test('меню: плитки-настройки в .menu-list, «Заблокировать» в меню нет (1.3.3)', () => {
   const listStart = HTML.indexOf('<div class="menu-list">');
   const listEnd = HTML.indexOf('</div>', listStart);
   const listInner = HTML.slice(listStart, listEnd);
-  assert.ok(!/id="mLock"/.test(listInner), 'mLock не должна быть внутри .menu-list');
+  assert.ok(!/id="mLock"/.test(HTML), 'mLock в меню не должно быть');
   assert.ok(/id="mAbout"/.test(listInner), 'плитки-настройки остаются в .menu-list');
-});
-
-test('меню: .mi-lock фиксированной нормальной высоты (не 1fr), полная ширина', () => {
-  const b = ruleBody('.mi-lock.mi');
-  assert.ok(b, 'нет правила .mi-lock.mi');
-  assert.ok(/flex:\s*0 0 auto/.test(b), 'lock не растягивается (flex:0 0 auto)');
-  const h = b.match(/height:\s*(\d+)px/);
-  assert.ok(h && parseInt(h[1], 10) <= 60, 'высота «Заблокировать» обычная (<=60px)');
-  assert.ok(/width:\s*100%/.test(b), 'полная ширина');
 });
 
 // ---- B2 (истинная причина): глиф копирования на линии текста даже у ОДНОСТРОЧНОГО значения ----

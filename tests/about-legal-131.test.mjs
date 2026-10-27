@@ -48,7 +48,8 @@ test('openAbout: значки по data-icon, у каждой ссылки ес�
   assert.ok(/icon\(b\.dataset\.icon, 18\)/.test(body), 'значок должен браться из data-icon');
   assert.ok(/openExternal\(b\.dataset\.url\)/.test(body), 'ссылки открываются через openExternal');
   const buttons = body.match(/<button[^>]*class="about-link"[^>]*>/g) || [];
-  assert.equal(buttons.length, 3, 'ожидаем 3 ссылки: 2 документа + сайт (почту убрали, I3)');
+  // 1.3.3: + ссылка на открытый код в ответе частого вопроса (tests/faq-133)
+  assert.equal(buttons.length, 4, 'ожидаем 4 ссылки: открытый код (частые вопросы) + 2 документа + сайт (почту убрали, I3)');
   for (const b of buttons) {
     const m = b.match(/data-icon="([^"]+)"/);
     assert.ok(m, 'у ссылки нет data-icon: ' + b);

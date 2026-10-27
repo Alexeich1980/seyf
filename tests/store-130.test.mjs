@@ -247,7 +247,7 @@ function paywallSrc() {
 }
 test('пейволл: поле ключа как в «Хомяке» - тексты на месте', () => {
   const s = paywallSrc();
-  assert.ok(s.includes('Уже есть ключ? Активируйте его'));
+  assert.ok(s.includes('>Есть ключ<'), '1.3.3: ключ - под раскрывашкой «Есть ключ»');
   assert.ok(s.includes('Лицензионный ключ приобретается отдельно, вне приложения.'));
   assert.ok(s.includes('class="pw-key"') && s.includes('pw-activate'), 'только поле и кнопка');
 });

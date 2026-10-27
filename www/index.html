@@ -75,23 +75,21 @@
     </div>
     <div class="menu-body">
       <div class="menu-sec">Настройки и данные</div>
-      <!-- Плитки-сетка 2 колонки (v3-визуал). Пары: [Вход | Сменить пароль] [Копия | Обновление]
-           [Тема | Разделы] [Полная версия | О приложении], последняя «Заблокировать» - на всю
-           ширину (9-я плитка нечётная -> правило симметрии :last-child:nth-child(odd) в CSS).
+      <!-- Плитки-сетка 2 колонки (v3-визуал). Пары (Алексей 27.10.2026): [Вход | Сменить пароль]
+           [Тема | Разделы] [Копия | Архив для близких] [Полная версия | О приложении].
+           1.3.3: «Обновление» ушло в «О приложении» (версия + «Проверить», точка о новой версии - на
+           плитке «О приложении»), «Заблокировать» - значком замка в шапке главного экрана.
            mi-s (длинные пояснения) остаются в DOM для updateMenuInfo, но скрыты в плиточном виде. -->
       <div class="menu-list">
         <button class="mi c-teal" id="mBio" type="button"><span class="mi-ic" data-ic="fingerprint"></span><span class="mi-t">Вход в приложение</span><span class="mi-s" id="mBioInfo"></span></button>
         <button class="mi c-amber" id="mKey" type="button"><span class="mi-ic" data-ic="key"></span><span class="mi-t">Сменить мастер-пароль</span><span class="mi-s"></span></button>
-        <button class="mi c-green" id="mBackup" type="button"><span class="mi-ic" data-ic="archive"></span><span class="mi-t">Резервная копия</span><span class="mi-s">сохранить / восстановить</span></button>
-        <button class="mi c-blue" id="mUpdate" type="button"><span class="mi-ic" data-ic="refresh"></span><span class="mi-t">Обновление</span><span class="mi-s" id="mUpdateInfo"></span></button>
         <button class="mi c-purple" id="mTheme" type="button"><span class="mi-ic mi-sw" id="mThemeSwatch" aria-hidden="true"></span><span class="mi-t">Тема оформления</span><span class="mi-s" id="mThemeInfo">Тёмная</span></button>
         <button class="mi c-cyan" id="mSections" type="button"><span class="mi-ic" data-ic="grid"></span><span class="mi-t">Разделы на витрине</span><span class="mi-s" id="mSectionsInfo">показать / скрыть</span></button>
+        <button class="mi c-green" id="mBackup" type="button"><span class="mi-ic" data-ic="backup"></span><span class="mi-t">Резервная копия</span><span class="mi-s">сохранить / восстановить</span></button>
+        <button class="mi c-blue" id="mArchive" type="button"><span class="mi-ic" data-ic="briefcase"></span><span class="mi-t">Архив для близких</span><span class="mi-s">что где лежит</span></button>
         <button class="mi c-gold" id="mPro" type="button"><span class="mi-ic" data-ic="star"></span><span class="mi-t">Полная версия</span><span class="mi-s" id="mProInfo"></span></button>
-        <button class="mi c-grey" id="mAbout" type="button"><span class="mi-ic" data-ic="info"></span><span class="mi-t">О приложении</span><span class="mi-s">версия, автор</span></button>
+        <button class="mi c-grey" id="mAbout" type="button"><span class="mi-ic" data-ic="info"></span><span class="mi-t">О приложении</span><span class="mi-s">версия, частые вопросы</span></button>
       </div>
-      <!-- «Заблокировать» вынесена ИЗ растянутой сетки плиток (1.2.16): сетка заполняет высоту, а
-           эта кнопка остаётся обычной высоты внизу (в сетке grid-auto-rows:1fr тянул её слишком высоко). -->
-      <button class="mi mi-lock" id="mLock" type="button"><span class="mi-ic" data-ic="lock"></span><span class="mi-t">Заблокировать</span><span class="mi-s">запереть сейф сейчас</span></button>
     </div>
   </nav>
   <script src="version.js"></script>
@@ -114,6 +112,8 @@
        (import vendor/pdf.min.js + module-воркер vendor/pdf.worker.min.js; расширение .js — чтобы
        и локальный сервер Capacitor, и браузер отдавали её с JS-MIME). Классический global-скрипт
        больше не нужен. Апгрейд с 3.11.174 закрывает CVE-2024-4367 (RCE). -->
+  <!-- 1.3.3: щуп масштаба системного шрифта (браузер; на телефоне масштаб даёт плагин FontScale), js/fontzoom.js -->
+  <span id="fzProbe" aria-hidden="true">M</span>
   <script type="module" src="js/app.js"></script>
 </body>
 </html>

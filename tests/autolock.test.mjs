@@ -64,13 +64,20 @@ test('resumeDecision: нет метки фона или битое окно → 
   assert.equal(resumeDecision(1000, 999999, 0), 'restore');
 });
 
-// --- собственное системное окно (сохранение/выбор файла/камера) НЕ запирает (косяк #17) ---
+// --- собственное системное окно (сохранение/выбор файла/камера/печать/оплата): мгновенно НЕ запирает (косяк #17),
+// но окно автоблока по времени действует всегда (баг 1.3.3, проход на телефоне 27.10: печать → «Домой» 6 мин →
+// возврат без входа) ---
 
-test('foregroundDecision: пока открыто наше системное окно → восстановить даже за окном автоблока', () => {
+test('foregroundDecision: системное окно открыто, в фоне дольше окна автоблока → запереть', () => {
   const ms = 5 * 60 * 1000;
-  // прошло больше окна автоблока, но это был системный диалог сохранения — НЕ запираем
-  assert.equal(foregroundDecision({ systemWindowOpen: true, backgroundedAt: 1_000_000, now: 1_000_000 + ms + 60_000, autolockMs: ms }), 'restore');
+  assert.equal(foregroundDecision({ systemWindowOpen: true, backgroundedAt: 1_000_000, now: 1_000_000 + ms + 60_000, autolockMs: ms }), 'lock');
+  assert.equal(foregroundDecision({ systemWindowOpen: true, backgroundedAt: 1_000_000, now: 1_000_000 + ms, autolockMs: ms }), 'lock', 'ровно окно - уже замок');
+});
+
+test('foregroundDecision: системное окно открыто, в фоне меньше окна автоблока → тот же экран', () => {
+  const ms = 5 * 60 * 1000;
   assert.equal(foregroundDecision({ systemWindowOpen: true, backgroundedAt: 1_000_000, now: 1_000_000 + 60_000, autolockMs: ms }), 'restore');
+  assert.equal(foregroundDecision({ systemWindowOpen: true, backgroundedAt: 1_000_000, now: 1_000_000 + ms - 1, autolockMs: ms }), 'restore');
 });
 
 test('foregroundDecision: без системного окна — обычная логика окна времени (Home запирает)', () => {

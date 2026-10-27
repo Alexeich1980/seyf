@@ -1,6 +1,6 @@
 // review5-130.test.mjs - находки финального ревью боевого APK 1.3.0 (до загрузки в RuStore).
 //   п.2  покупка: уже куплено -> путь «Восстановить покупку», сбой -> проверка владения;
-//        тихое восстановление после разблокировки (pay.js runPurchase / autoRestorePro);
+//        тихое восстановление после разблокировки (pay.js autoRestorePro; сама покупка - purchase-133);
 //   п.3  нативный ownsProduct засчитывает ТОЛЬКО товар с переданным productId (source-guard Java);
 //   п.4  тексты про буфер обмена = поведение (clipboard.js чистит и вслепую).
 // Мутации (scratchpad/mutate-review5.mjs): каждое ослабление ниже краснеет своим тестом.
@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { runPurchase, autoRestorePro } from '../www/js/pay.js';
+import { autoRestorePro } from '../www/js/pay.js';
 import { isPro, markPro } from '../www/js/gate.js';
 import { createRuStorePayment, createMockPayment, createUnavailablePayment } from '../www/js/payment.js';
 
@@ -38,47 +38,9 @@ function plugin({ owned = false, ownedAfter = null, purchase = { ok: true, purch
   };
 }
 
-// ---------------------------------- runPurchase ----------------------------------
-test('runPurchase: уже куплено в аккаунте -> owned, повторной оплаты НЕТ', async () => {
-  const p = plugin({ owned: true });
-  const r = await runPurchase(createRuStorePayment(p, 'seyf-pro'));
-  assert.deepEqual(r, { kind: 'owned' });
-  assert.ok(!p.calls.some((c) => c[0] === 'buy'), 'шторку оплаты не открывали');
-});
-
-test('runPurchase: обычная покупка -> ok с purchaseId', async () => {
-  const p = plugin();
-  assert.deepEqual(await runPurchase(createRuStorePayment(p, 'seyf-pro')), { kind: 'ok', purchaseId: 'rs-1' });
-});
-
-test('runPurchase: отмена -> cancelled (без проверки «куплено ли» после)', async () => {
-  const p = plugin({ purchase: { ok: false, cancelled: true } });
-  assert.deepEqual(await runPurchase(createRuStorePayment(p, 'seyf-pro')), { kind: 'cancelled' });
-});
-
-test('runPurchase: сбой оплаты, но товар в аккаунте есть (деньги списались) -> owned, не «не прошёл»', async () => {
-  const p = plugin({ purchase: { ok: false, error: 'Платёж не прошёл' }, ownedAfter: true });
-  assert.deepEqual(await runPurchase(createRuStorePayment(p, 'seyf-pro')), { kind: 'owned' });
-});
-
-test('runPurchase: сбой оплаты и покупки нет -> failed; исключение шторки -> failed', async () => {
-  assert.deepEqual(await runPurchase(createRuStorePayment(plugin({ purchase: { ok: false, error: 'x' } }), 'seyf-pro')), { kind: 'failed' });
-  assert.deepEqual(await runPurchase(createRuStorePayment(plugin({ purchaseThrows: true }), 'seyf-pro')), { kind: 'failed' });
-});
-
-test('runPurchase: проверка владения упала -> идём в оплату обычным путём', async () => {
-  const p = plugin({ getFails: true });
-  assert.deepEqual(await runPurchase(createRuStorePayment(p, 'seyf-pro')), { kind: 'ok', purchaseId: 'rs-1' });
-});
-
-test('runPurchase: «оплата недоступна» -> unavailable (никогда не ok)', async () => {
-  assert.deepEqual(await runPurchase(createUnavailablePayment()), { kind: 'unavailable' });
-});
-
-test('runPurchase: mock (тест-сборка) владение не спрашивает, покупка ok', async () => {
-  const r = await runPurchase(createMockPayment({ owned: true }));
-  assert.equal(r.kind, 'ok', 'owned-путь только для боевого RuStore');
-});
+// runPurchase (1.3.0-1.3.3) заменён машиной состояний purchase.js (адв. ревью 1.3.3, В1): уже куплено -
+// без шторки, отмена/ошибка с перепроверкой владения, «оплата недоступна» - никогда не ok -
+// проверки в tests/purchase-133.test.mjs.
 
 // ---------------------------------- autoRestorePro ----------------------------------
 function deps(adapter, vault, saveImpl) {

@@ -322,7 +322,7 @@ test('п.9: ссылки на тесты/инструменты в коммен�
     .filter((f) => path.basename(f) !== 'build-ota.js' || fs.existsSync(f));
   // публичный репозиторий: внутренние QA-скрипты и генератор ключей не публикуются - ссылки на них
   // в комментариях допустимы, если самого файла нет; все остальные ссылки обязаны существовать
-  const INTERNAL = new Set(['tools/qa-save-all.mjs', 'tools/gen-license.mjs', 'tools/qa-align-check.mjs']);
+  const INTERNAL = new Set(['tools/qa-save-all.mjs', 'tools/gen-license.mjs', 'tools/qa-align-check.mjs', 'tools/qa-133-capture.mjs']);
   const missing = [];
   for (const f of files) for (const m of fs.readFileSync(f, 'utf8').matchAll(/\b(tests|tools)\/[A-Za-z0-9_.-]+\.m?js\b/g))
     if (!fs.existsSync(path.join(ROOT, m[0])) && !INTERNAL.has(m[0])) missing.push(path.basename(f) + ' -> ' + m[0]);

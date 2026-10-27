@@ -29,6 +29,8 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(RuStorePayPlugin.class);
         registerPlugin(RuStoreUpdatePlugin.class);   // 1.3.2: обновления через RuStore App Update SDK
         registerPlugin(RuStoreReviewPlugin.class);   // 1.3.2: окно оценки RuStore Review SDK
+        registerPlugin(FontScalePlugin.class);       // 1.3.3: крупный системный шрифт
+        registerPlugin(PrintPlugin.class);           // 1.3.3: печать листа «Архив для близких» (и «Сохранить как PDF»)
         super.onCreate(savedInstanceState);
 
         // FLAG_SECURE: запрет скриншотов/записи экрана и пустой эскиз в списке недавних.
@@ -44,8 +46,10 @@ public class MainActivity extends BridgeActivity {
             android.webkit.WebView.setWebContentsDebuggingEnabled(false);
         }
 
-        // Свой масштаб текста: системный «размер шрифта» иначе ломает вёрстку списков.
-        getBridge().getWebView().getSettings().setTextZoom(100);
+        // 1.3.3: крупный системный шрифт разрешён (было setTextZoom(100) - запрет масштаба). textZoom
+        // ставит FontScalePlugin (= системный «размер шрифта», 100-200%) и сообщает масштаб в JS
+        // (html[data-fz] перестраивает витрину и меню). Смена шрифта при открытом приложении экран не
+        // пересоздаёт (fontScale в configChanges манифеста) - сейф не запирается, форма не теряется.
 
         // Android Autofill (1.3.0): WebView с расшифрованным сейфом исключён из автозаполнения
         // целиком (вместе с потомками) - сторонний сервис автозаполнения не видит и не

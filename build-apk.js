@@ -15,6 +15,8 @@
 //                                     лежит с пометкой «ЧЕРНОВИК-без-app-id» и громким предупреждением.
 //   --version-code=N                  пересборка той же (ещё не опубликованной) версии с кодом выше
 //                                     прежнего файла; только релиз/стор, окно (код версии, код след. патча)
+//   --no-desk                         собрать только в out/: на рабочий стол и в папку публикации НЕ класть
+//                                     (сборка-проверка до ревью; env SEYF_NO_DESK=1)
 //   (то же через env: SEYF_RELEASE=1 / SEYF_STORE=1 / SEYF_APP_ID=<ID> / SEYF_VERSION_CODE=N; store подразумевает release)
 //
 // Флаги вшиваются в ЧИСТУЮ КОПИЮ www (build/www-ship, build-lib.js makeShip), а не в рабочую
@@ -84,10 +86,10 @@ function draftBanner() {
 // --- окружение ---
 const javaHome = process.env.JAVA_HOME;
 if (!javaHome || !fs.existsSync(path.join(javaHome, 'bin', 'java.exe'))) {
-  die('не найдена Java (JAVA_HOME) - JDK 17. Настройка - как у «Хомяка», см. Homyak/README-сборка.md.');
+  die('не найдена Java (JAVA_HOME) - JDK 17. Настройка - как у «Хомяка», см. Хомяк RuStore/README-сборка.md.');
 }
 const sdk = process.env.ANDROID_HOME || process.env.ANDROID_SDK_ROOT;
-if (!sdk || !fs.existsSync(sdk)) die('не найден Android SDK (ANDROID_HOME). См. Homyak/README-сборка.md.');
+if (!sdk || !fs.existsSync(sdk)) die('не найден Android SDK (ANDROID_HOME). См. Хомяк RuStore/README-сборка.md.');
 if (!fs.existsSync(path.join(sdk, 'platforms', 'android-34'))) {
   die('нет platforms;android-34. Установи: sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0" и прими лицензии.');
 }
@@ -183,7 +185,9 @@ const outApk = path.join(OUT_DIR, outName);
 fs.copyFileSync(APK_SRC, outApk);
 fs.copyFileSync(APK_SRC, path.join(OUT_DIR, MODE.store ? 'Seyf-store.apk' : 'Seyf.apk'));
 let desk = null;
-try {
+const NO_DESK = ARGV.includes('--no-desk') || process.env.SEYF_NO_DESK === '1';
+if (NO_DESK) say('  --no-desk: только out/, на стол и в папку публикации не кладу');
+else try {
   if (MODE.store) {
     // финал - в папку публикации RuStore; черновик (без app-id) - отдельно на стол, не спутать
     const draft = path.join(DESKTOP_ROOT, 'Сейф-' + version + '-ЧЕРНОВИК-без-app-id.apk');
