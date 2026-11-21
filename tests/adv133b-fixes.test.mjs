@@ -25,7 +25,7 @@ import * as A from '../www/js/archive.js';
 import * as UI from '../www/js/ui.js';
 import { ensureSections } from '../www/js/sectionsx.js';
 import * as C from '../www/js/crypto.js';
-import { generatePassphrase } from '../www/js/generator.js';
+import { generateArchivePassword } from '../www/js/password-tools.js';
 import { createSysWindow } from '../www/js/syswindow.js';
 import { hasIcon } from '../www/js/icons.js';
 
@@ -42,20 +42,20 @@ test('В2: слабые пароли файла отклоняются (попу
     'Qwerty123456!', 'Zxcvbnm,./2026', 'abababababab12', 'Пароль-пароль-1', 'iloveyou2026', '1234567890', 'aaaaaaaaaaaa',
     'kotrybalam']) {   // последний - без шаблонов, но 10 строчных: слабый по оценке стойкости приложения
     const r = A.filePasswordProblem(p, p);
-    assert.match(r, /простой/, 'должен отклоняться: ' + p);
-    assert.match(r, /3-4 случайных слова/);
+    assert.match(r, /простой|короче/, 'должен отклоняться: ' + p);
+    assert.match(r, /6 случайных слов/);
     assert.match(r, /«Придумать пароль»/);
   }
-  assert.match(A.filePasswordProblem('Ab1!x', 'Ab1!x'), /короче 10 знаков\. Нажмите «Придумать пароль» или возьмите 3-4 случайных слова/);
+  assert.match(A.filePasswordProblem('Ab1!x', 'Ab1!x'), /короче 16 знаков/);
   for (const p of ['Correct horse 42', 'кот Барсик 2027', 'Ключ для сестры 2026', 'zelenyikotspit', 'Мама мыла раму 7']) {
-    assert.equal(A.filePasswordProblem(p, p), '', 'нормальный пароль: ' + p);
+    assert.notEqual(A.filePasswordProblem(p, p), '', '1.3.4: фраза требует проверки: ' + p);
   }
   // кнопка «Придумать пароль» (4 слова генератора) всегда даёт пароль, который проходит планку
-  for (let i = 0; i < 300; i++) { const g = generatePassphrase({ words: 4 }); assert.equal(A.filePasswordProblem(g, g), '', g); }
-  assert.match(UIJS, /const pw = generatePassphrase\(\{ words: 4 \}\);\s*p1\.type = 'text'; p2\.type = 'text';[^\n]*\n\s*p1\.value = pw; p2\.value = pw;/);
+  for (let i = 0; i < 300; i++) { const g = generateArchivePassword(); assert.equal(A.filePasswordProblem(g, g, { generatedPassword: g }), '', g); }
+  assert.match(UIJS, /generatedPassword = pw;/);
   assert.match(UIJS, /<span class="arc-pwlab"><label for="arcPw1">\$\{esc\(A\.FILE_PW\.label\)\}<\/label><button type="button" class="arc-gen">\$\{esc\(A\.FILE_PW_GEN\)\}<\/button><\/span>/, 'кнопка в строке подписи поля');
   assert.equal(A.FILE_PW_GEN, 'Придумать пароль');
-  assert.match(read('www', 'js', 'archive.js'), /import \{ estimateStrength \} from '\.\/generator\.js';/, 'оценка стойкости - приложения (ядро не тронуто)');
+  assert.match(read('www', 'js', 'archive.js'), /import \{ assessPassword \} from '\.\/password-tools\.js';/, 'оценка стойкости - приложения (ядро не тронуто)');
 });
 
 // ---------------- М3 / М4: лист ----------------
@@ -130,7 +130,7 @@ test('М6: «это мастер-пароль?» - снятием обёртки
   const open = new Function(A.VIEWER_CORE + '\nreturn seyfOpen;')();
   assert.deepEqual(await open(env, nfc), { a: 1 });
   assert.deepEqual(await open(await A.encryptPayload({ b: 2 }, nfc, { iterations: 1000 }), nfd), { b: 2 });
-  assert.equal(A.filePasswordProblem(nfc, nfd), '', 'повтор в другой форме Unicode - совпадает');
+  assert.doesNotMatch(A.filePasswordProblem(nfc, nfd), /не совпадают/, 'Unicode совпадает, но фраза требует проверки');
 });
 
 // ---------------- М1 ----------------

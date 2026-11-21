@@ -27,6 +27,7 @@ export const FREE_LIMITS = {
   seed: 1,
   contacts: 0,
   requisites: 0,
+  loyalty: 3,
 };
 
 // Цена полной версии (разовая покупка через RuStore Pay). Одно место для UI и текстов.

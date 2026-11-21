@@ -125,13 +125,16 @@ body::after {
   background: var(--bg, #0f1518);
 }
 .splash-icon {
-  /* Эмблема-дверь уже круглая на прозрачном фоне -> object-fit:contain (без crop) и
-     drop-shadow (тень по силуэту двери, не по прозрачному полю). */
+  /* Круглая производная утверждённой латунной эмблемы; исходник витрины не меняется. */
   width: 104px; height: 104px; object-fit: contain;
   filter: drop-shadow(0 18px 40px rgba(0, 0, 0, .55));
   animation: splash-in .28s ease both;
 }
 @keyframes splash-in { from { opacity: 0; transform: scale(.94); } to { opacity: 1; transform: none; } }
+/* Brand-only clipping, including dynamically rendered menu/about/onboarding images. */
+img[src="img/vault-emblem.png"], img[src="img/vault-round.png"], img[src="img/safe.png"] {
+  border-radius: 50%;
+}
 .screen { min-height: 100vh; }
 *:focus-visible { outline: 2px solid var(--teal); outline-offset: 2px; }
 button { transition: background .15s, color .15s, border-color .15s, filter .15s, opacity .15s; }
@@ -153,8 +156,7 @@ button { transition: background .15s, color .15s, border-color .15s, filter .15s
   border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); box-shadow: var(--shadow);
 }
 .lock-logo {
-  /* Эмблема стартового экрана ~84px, единый источник vault-emblem.png. contain + drop-shadow
-     (дверь круглая на прозрачном фоне; тень по силуэту). Логотип общий для обоих режимов
+  /* Единый источник латунной иконки - vault-emblem.png. Логотип общий для обоих режимов
      v3-auth (мастер-пароль и биометрия) - оба живут в .lock-card под ним. */
   /* 1.2.16: единый крупный размер старт-иконки во ВСЕХ состояниях (splash 104px = логин 104px),
      чтобы эмблема не «прыгала» между загрузкой и экраном входа. */
@@ -872,9 +874,7 @@ button { transition: background .15s, color .15s, border-color .15s, filter .15s
 }
 .vtile:hover { border-color: color-mix(in srgb, var(--teal) 35%, var(--line)); transform: translateY(-2px); box-shadow: var(--glow-hover); }
 .vtile:active { transform: scale(.98); }
-/* Симметрия витрины: при нечётном числе видимых разделов последняя плитка тянется на всю
-   ширину (не висит одинокой половинкой). :last-child:nth-child(odd) - тот же приём в меню. */
-.vitrina .vtile:last-child:nth-child(odd) { grid-column: 1 / -1; }
+/* Все разделы, включая последнюю нечётную плитку, занимают одну ячейку витрины. */
 /* Заслон специфичности (косяк #2 «иконки смещены вправо в белом поле»): базовое
    .cardicon{width:28px} стоит ПОЗЖЕ в файле и при равной специфичности перебивало
    одноклассовый .vtile-ic{width:46px} — чип витрины сжимался до 28px, а глиф 34px
@@ -939,6 +939,11 @@ button { transition: background .15s, color .15s, border-color .15s, filter .15s
 }
 .ic.open:hover { background: var(--teal-soft); }
 .f-val.f-link { color: var(--teal); word-break: break-all; }
+/* Полный URL хранится в записи и копируется целиком; в карточке достаточно одной строки. */
+.entry[data-section="passwords"] .field { min-width: 0; max-width: 100%; }
+.entry[data-section="passwords"] .f-val.f-link {
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 
 /* ---- компактная строка карты в РЕДАКТОРЕ: Срок / CVV / ПИН ---- */
 .card-triple { display: flex; gap: 10px; }
@@ -1384,7 +1389,7 @@ body.reorder-mode #cards .entry .reorder-move button:disabled { opacity: .3; cur
 }
 .crop-canvas { display: block; max-width: 100%; }
 .crop-frame {
-  position: absolute; box-sizing: border-box; border: 2px solid var(--teal);
+  position: absolute; box-sizing: border-box; border: 0; outline: 2px solid var(--teal);
   box-shadow: 0 0 0 100vmax rgba(0,0,0,.45); touch-action: none; cursor: move;
 }
 /* C7: ручка = прозрачная зона касания 44x44 (центр - в углу рамки), видимая точка 22px - ::after. */
@@ -1783,3 +1788,37 @@ details.disclose[open] .disc-arr::before { transform: translateY(3px) rotate(-13
   html[data-fz="xl"] .arc-list { grid-template-columns: 1fr; }
   .arc-actions > button { flex: 1 1 0; width: auto; }
 }
+
+/* 1.3.4: принятое меню, четыре пары и «О приложении» во всю ширину. */
+#menu { width: min(340px, 100vw); }
+.menu-head { flex-shrink: 0; padding: calc(10px + env(safe-area-inset-top)) 14px 10px; gap: 8px; }
+.menu-body { min-height: 0; padding: 8px 10px calc(12px + env(safe-area-inset-bottom)); }
+.menu-list, html[data-fz] .menu-list {
+  flex: 1 1 auto; grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(4, minmax(0, 1fr)) minmax(44px, .5fr);
+  gap: 7px; min-height: 0; align-content: stretch;
+}
+.mi, html[data-fz="xl"] .mi { min-width: 0; min-height: 44px; padding: 5px 6px; gap: 5px; flex-direction: column; justify-content: center; text-align: center; }
+.mi-ic { width: 39px; height: 39px; }
+.mi-ic svg { width: 30px; height: 30px; }
+#mAbout { grid-column: 1 / -1; flex-direction: row; gap: 10px; }
+@media (max-height: 650px) {
+  html[data-fz="xl"] .mi-ic, html[data-fz="xl"] .menu-sec { display: none; }
+  html[data-fz="xl"] .mi-t { font-size: 11px; flex: 0 1 auto; }
+  html[data-fz="xl"] .menu-head { padding-top: calc(6px + env(safe-area-inset-top)); padding-bottom: 6px; }
+}
+.feature-tools { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 12px; }
+.feature-tools button { min-height: 44px; padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--r-sm); color: var(--teal); background: var(--elevated); font: inherit; cursor: pointer; }
+.trash-row { padding-block: 12px; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+.trash-row .btn { margin: 4px; min-height: 44px; }
+.document-reminders-banner { padding: 12px; margin: 8px 0; background: var(--elevated); border: 1px solid var(--line); border-radius: var(--r-sm); }
+.document-reminders-banner .btn { min-height: 44px; margin: 4px; }
+.document-reminders-banner .detail-body { padding: 0; }
+.document-reminders-banner .detail-head { padding: 0 0 8px; }
+.pt-result { width: 100%; overflow-wrap: anywhere; font: inherit; }
+.trash-row .btn, .document-reminders-banner .btn, .detail-body > .btn, .detail-head .btn {
+  padding: 10px 14px; min-height: 44px; border: 1px solid var(--line); border-radius: var(--r-sm);
+  color: var(--ink); background: var(--elevated); font: inherit; cursor: pointer;
+}
+.trash-row .btn:hover, .document-reminders-banner .btn:hover, .detail-body > .btn:hover, .detail-head .btn:hover { border-color: var(--teal); }
+.trash-row .btn:focus-visible, .document-reminders-banner .btn:focus-visible, .detail-body > .btn:focus-visible, .detail-head .btn:focus-visible { outline: 2px solid var(--teal); outline-offset: 2px; }

@@ -100,7 +100,7 @@ test('index.html грузит buildflags.js ДО app.js (флаг готов к 
 
 // ---------- проводка в app.js (source-guard) ----------
 
-const APP = read('www', 'js', 'app.js');
+const APP = read('www', 'js', 'app.js').replaceAll('\r\n', '\n');
 
 test('app.js: единый hasFullAccess = computeAccess(Access.FULL + vaultIsPro)', () => {
   assert.match(APP, /function hasFullAccess\(\)\s*\{[\s\S]*computeAccess\(\{[\s\S]*full:\s*Access\.FULL[\s\S]*isPro:\s*vaultIsPro[\s\S]*\}\)/,

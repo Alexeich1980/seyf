@@ -26,9 +26,9 @@ function fnSrc(name) {
   return APP.slice(i, j);
 }
 
-test('меню: ровно 8 плиток в порядке Алексея, пары по строкам', () => {
+test('меню: 4 пары и кнопка «О приложении», порядок Алексея для 1.3.4', () => {
   const ids = [...HTML.matchAll(/<button class="mi[^"]*" id="(m\w+)"/g)].map((m) => m[1]);
-  assert.deepEqual(ids, ['mBio', 'mKey', 'mTheme', 'mSections', 'mBackup', 'mArchive', 'mPro', 'mAbout']);
+  assert.deepEqual(ids, ['mBio', 'mKey', 'mTheme', 'mSections', 'mBackup', 'mTrash', 'mPro', 'mArchive', 'mAbout']);
   const label = (id) => (HTML.match(new RegExp('id="' + id + '"[^>]*>.*?<span class="mi-t">([^<]+)<')) || [])[1];
   assert.equal(label('mArchive'), 'Архив для близких');
   assert.ok(hasIcon('briefcase'), 'значок чемоданчика для плитки архива');

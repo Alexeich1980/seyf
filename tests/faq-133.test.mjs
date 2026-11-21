@@ -26,7 +26,7 @@ test('8 вопросов: 7 из черновика + файл архива (р�
     'Как сделать резервную копию и где её хранить?',
     'Почему нет облака?',
     'Как восстановить покупку полной версии?',
-    'Зачем Сейфу камера, биометрия и интернет?',
+    'Зачем Сейфу камера, биометрия, уведомления и интернет?',
     'Можно ли проверить, что данные никуда не уходят?',
     'Как близкий откроет файл архива?',   // ревью 1.3.3
   ]);
@@ -74,7 +74,7 @@ test('факты ответов совпадают с приложением', (
   assert.match(MAN, /android:allowBackup="false"/);
   // разрешения: только интернет, биометрия, камера
   const perms = [...MAN.matchAll(/<uses-permission android:name="android\.permission\.(\w+)"/g)].map((m) => m[1]).sort();
-  assert.deepEqual(perms, ['CAMERA', 'INTERNET', 'USE_BIOMETRIC']);
+  assert.deepEqual(perms, ['CAMERA', 'INTERNET', 'POST_NOTIFICATIONS', 'RECEIVE_BOOT_COMPLETED', 'USE_BIOMETRIC']);
   // напоминание о копии раз в месяц
   assert.match(read('www', 'js', 'backupnudge.js'), /30/);
 });

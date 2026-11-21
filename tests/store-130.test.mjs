@@ -429,7 +429,8 @@ test('RuStore Pay: одна схема deeplink в плагине, meta-data sdk
   assert.match(man, new RegExp('<data android:scheme="' + scheme.replace(/\./g, '\\.') + '" />'));
   assert.match(man, /android:name="console_app_id_value"\s+android:value="@string\/rustore_console_app_id"/, 'id только через ресурс');
   assert.match(ma, /RuStorePayPlugin\.proceedIntent\(getApplicationContext\(\), getIntent\(\)\)/);
-  assert.match(ma, /protected void onNewIntent\(Intent intent\) \{\s*super\.onNewIntent\(intent\);\s*RuStorePayPlugin\.proceedIntent/);
+  assert.match(ma, /protected void onNewIntent\(Intent intent\) \{\s*super\.onNewIntent\(intent\);[\s\S]*?RuStorePayPlugin\.proceedIntent\(getApplicationContext\(\), intent\)/);
+  assert.match(ma, /if \(intent != null && DocumentReminderReceiver\.OPEN_ACTION\.equals\(intent\.getAction\(\)\)\)/, 'только локальное напоминание обходит обработчик оплаты');
 });
 // Урок 1.3.0 (повтор класса 1.2.25): правка Python в текстовом режиме на Windows молча пишет CRLF.
 // Заслон расширен на все файлы, тронутые подготовкой к RuStore (fnBody/regex-заслоны ждут LF).

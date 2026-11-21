@@ -14,12 +14,14 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'; connect-src https://dorokhin-finance.ru">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Сейф</title>
-  <!-- Иконка приложения — эмблема-дверь сейфа (единый источник vault-emblem.png: старт, триггер меню, «О приложении», лаунчер). -->
+  <!-- vault-emblem.png — круглая производная утверждённого store/icon-512-latun.png. -->
   <link rel="icon" href="img/vault-emblem.png">
   <link rel="apple-touch-icon" href="img/vault-emblem.png">
   <!-- Шрифты тем — офлайн, self-hosted woff2 (latin+cyrillic). Внешняя сеть под запретом CSP. -->
   <link rel="stylesheet" href="css/fonts.css">
   <link rel="stylesheet" href="css/app.css">
+  <link rel="stylesheet" href="css/loyalty.css">
+  <link rel="stylesheet" href="css/crop-adjust.css">
 </head>
 <body>
   <main id="app">
@@ -76,7 +78,7 @@
     <div class="menu-body">
       <div class="menu-sec">Настройки и данные</div>
       <!-- Плитки-сетка 2 колонки (v3-визуал). Пары (Алексей 27.10.2026): [Вход | Сменить пароль]
-           [Тема | Разделы] [Копия | Архив для близких] [Полная версия | О приложении].
+           [Тема | Разделы] [Копия | Корзина] [Полная версия | Архив для близких] [О приложении на всю ширину].
            1.3.3: «Обновление» ушло в «О приложении» (версия + «Проверить», точка о новой версии - на
            плитке «О приложении»), «Заблокировать» - значком замка в шапке главного экрана.
            mi-s (длинные пояснения) остаются в DOM для updateMenuInfo, но скрыты в плиточном виде. -->
@@ -86,8 +88,9 @@
         <button class="mi c-purple" id="mTheme" type="button"><span class="mi-ic mi-sw" id="mThemeSwatch" aria-hidden="true"></span><span class="mi-t">Тема оформления</span><span class="mi-s" id="mThemeInfo">Тёмная</span></button>
         <button class="mi c-cyan" id="mSections" type="button"><span class="mi-ic" data-ic="grid"></span><span class="mi-t">Разделы на витрине</span><span class="mi-s" id="mSectionsInfo">показать / скрыть</span></button>
         <button class="mi c-green" id="mBackup" type="button"><span class="mi-ic" data-ic="backup"></span><span class="mi-t">Резервная копия</span><span class="mi-s">сохранить / восстановить</span></button>
-        <button class="mi c-blue" id="mArchive" type="button"><span class="mi-ic" data-ic="briefcase"></span><span class="mi-t">Архив для близких</span><span class="mi-s">что где лежит</span></button>
+        <button class="mi c-grey" id="mTrash" type="button"><span class="mi-ic" data-ic="trash"></span><span class="mi-t">Корзина</span></button>
         <button class="mi c-gold" id="mPro" type="button"><span class="mi-ic" data-ic="star"></span><span class="mi-t">Полная версия</span><span class="mi-s" id="mProInfo"></span></button>
+        <button class="mi c-blue" id="mArchive" type="button"><span class="mi-ic" data-ic="briefcase"></span><span class="mi-t">Архив для близких</span><span class="mi-s">что где лежит</span></button>
         <button class="mi c-grey" id="mAbout" type="button"><span class="mi-ic" data-ic="info"></span><span class="mi-t">О приложении</span><span class="mi-s">версия, частые вопросы</span></button>
       </div>
     </div>

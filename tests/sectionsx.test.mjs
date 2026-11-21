@@ -13,7 +13,7 @@ const NEW = ['contacts', 'wifi', 'requisites'];
 
 test('sections.js содержит три новых раздела', () => {
   for (const s of NEW) assert.ok(SECTIONS.includes(s), 'нет раздела ' + s);
-  assert.equal(SECTIONS.length, 10);
+  assert.equal(SECTIONS.length, 11);
 });
 
 test('импорт sectionsx дорегистрировал подписи и схемы в core-объекты UI', () => {

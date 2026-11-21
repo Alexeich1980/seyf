@@ -64,7 +64,7 @@ test('окно знакомства: «Понятно, начать», флаг 
 
 test('содержание: меню, поиск, «+», глаз, «?», замок; на «вы», без тире; не повторяет подсказки разделов', () => {
   const all = [O.ONBOARD_TITLE, O.ONBOARD_LEAD, ...O.ONBOARD_POINTERS.flatMap((p) => [p.title, p.text]), ...O.ONBOARD_ITEMS.map((i) => i.text)].join(' ');
-  for (const w of ['Меню', 'Поиск', '«+»', 'Глаз', '«?»', 'Замок']) assert.ok(all.includes(w), w);
+  for (const w of ['Меню', 'Поиск', '«+»', 'Значок глаза', '«?»', 'Значок замка']) assert.ok(all.includes(w), w);
   assert.deepEqual(O.ONBOARD_ITEMS.map((i) => i.ic), ['+', 'eye', 'help', 'lock']);
   assert.ok(!/—/.test(all));
   const plain = (s) => s.replace(/<[^>]+>/g, '').toLowerCase();

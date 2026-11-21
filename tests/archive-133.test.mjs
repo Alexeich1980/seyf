@@ -195,23 +195,23 @@ test('ФАЙЛ: по умолчанию PBKDF2-SHA256 600 000 повторов, 
 // ---------- 4. пароль файла ----------
 test('пароль файла: пусто, коротко, просто, не совпадает - отказ; нормальный - да', () => {
   assert.match(A.filePasswordProblem('', ''), /Придумайте/);
-  assert.match(A.filePasswordProblem('Ab1!x', 'Ab1!x'), /короче 10/);
-  assert.match(A.filePasswordProblem('aaaaaaaaaaaa', 'aaaaaaaaaaaa'), /простой/);
-  assert.match(A.filePasswordProblem('1234567890', '1234567890'), /простой/);
-  assert.match(A.filePasswordProblem('abcdefghij', 'abcdefghij'), /простой/);
-  assert.match(A.filePasswordProblem('abcdefghijklmn', 'abcdefghijklmn'), /простой/, 'алфавит подряд - нет (ревью В2)');
-  assert.equal(A.filePasswordProblem('zelenyikotspit', 'zelenyikotspit'), '', '14 знаков одного вида - можно (фраза)');
+  assert.match(A.filePasswordProblem('Ab1!x', 'Ab1!x'), /короче 16/);
+  assert.match(A.filePasswordProblem('aaaaaaaaaaaa', 'aaaaaaaaaaaa'), /простой|короче/);
+  assert.match(A.filePasswordProblem('1234567890', '1234567890'), /простой|короче/);
+  assert.match(A.filePasswordProblem('abcdefghij', 'abcdefghij'), /простой|короче/);
+  assert.match(A.filePasswordProblem('abcdefghijklmn', 'abcdefghijklmn'), /простой|короче/, 'алфавит подряд - нет (ревью В2)');
+  assert.notEqual(A.filePasswordProblem('zelenyikotspit', 'zelenyikotspit'), '', '1.3.4: человеческая фраза не доказывает случайность');
   assert.match(A.filePasswordProblem('Correct horse 42', 'Correct horse 43'), /не совпадают/);
-  assert.equal(A.filePasswordProblem('Correct horse 42', 'Correct horse 42'), '');
-  assert.equal(A.filePasswordProblem('кот Барсик 2027', 'кот Барсик 2027'), '');
+  assert.notEqual(A.filePasswordProblem('Correct horse 42', 'Correct horse 42'), '');
+  assert.notEqual(A.filePasswordProblem('кот Барсик 2027', 'кот Барсик 2027'), '');
 });
 
 test('пароль файла ≠ мастер-паролю: проверка до шифрования, тем же путём, что вход', () => {
   const UIJS = read('www', 'js', 'archive-ui.js');
   const APP = read('www', 'js', 'app.js');
-  assert.match(UIJS, /if \(await D\.isMasterPassword\(pw\)\) \{ err\.textContent = A\.FILE_PW_IS_MASTER; return; \}[\s\S]*A\.encryptPayload\(model, pw\)/);
+  assert.match(UIJS, /if \(isMaster\) \{ err\.textContent = A\.FILE_PW_IS_MASTER; return; \}[\s\S]*A\.encryptPayload\(model, pw\)/);
   assert.match(APP, /isMasterPassword: async \(pw\) => \(await opensVaultKey\(state\.file, pw, C\)\)/, 'снятием обёртки ключа (ревью М6)');
-  assert.match(UIJS, /const problem = A\.filePasswordProblem\(pw, p2\.value\);\s*if \(problem\)/);
+  assert.match(UIJS, /const problem = A\.filePasswordProblem\(pw, p2\.value, \{ generatedPassword \}\);\s*if \(problem\)/);
 });
 
 // ---------- 5. бесплатно и без лимитов ----------
@@ -342,5 +342,5 @@ test('печать листа: системная печать Android (плаг
   const UIJS = read('www', 'js', 'archive-ui.js');
   assert.match(UIJS, /NP\.Print\.print\(\{ html, name: A\.ARCHIVE_TITLE \}\)/);
   assert.match(UIJS, /const html = A\.renderSheetHtml\(A\.buildSheetModel\(/, 'печатается ТОЛЬКО лист без секретов');
-  assert.match(UIJS, /const html = A\.buildEncryptedHtml\(await A\.encryptPayload\(model, pw\)\)/, 'полная модель уходит только зашифрованной');
+  assert.match(UIJS, /const encrypted = await A\.encryptPayload\(model, pw\);[\s\S]*const html = A\.buildEncryptedHtml\(encrypted\)/, 'полная модель уходит только зашифрованной');
 });

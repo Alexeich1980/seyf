@@ -13,6 +13,8 @@ import * as UI from './ui.js';
 import { SECTIONS } from './sections.js';
 
 export const EXTRA_LABELS = {
+  cards: 'Банковские карты',
+  loyalty: 'Дисконтные карты',
   contacts: 'Избранные контакты',
   wifi: 'Пароли Wi-Fi',
   requisites: 'Важные реквизиты',
@@ -20,6 +22,11 @@ export const EXTRA_LABELS = {
 
 // type: text | copy | secret | textarea. Первое поле — заголовок карточки (core: schema[0]).
 export const EXTRA_SCHEMA = {
+  loyalty: [
+    { key: 'description', label: 'Магазин', type: 'text' },
+    { key: 'number', label: 'Номер карты', type: 'copy' },
+    { key: 'note', label: 'Заметка', type: 'textarea' },
+  ],
   // Контакты: секретов нет → «глаз» не рисуется (secvis.sectionHasSecrets = false).
   // phone получает кнопку «Позвонить» (tel:), link — «Открыть» (system) в mobile-декораторе.
   contacts: [

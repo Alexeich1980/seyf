@@ -26,6 +26,8 @@ public class MainActivity extends BridgeActivity {
         // Свой плагин регистрируется ДО super.onCreate: мост собирает список плагинов
         // при создании, всё, что позже, он уже не увидит.
         registerPlugin(SaveFilePlugin.class);
+        registerPlugin(BrightnessPlugin.class);
+        registerPlugin(DocumentReminderPlugin.class);
         registerPlugin(RuStorePayPlugin.class);
         registerPlugin(RuStoreUpdatePlugin.class);   // 1.3.2: обновления через RuStore App Update SDK
         registerPlugin(RuStoreReviewPlugin.class);   // 1.3.2: окно оценки RuStore Review SDK
@@ -66,6 +68,13 @@ public class MainActivity extends BridgeActivity {
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
+        if (intent != null && DocumentReminderReceiver.OPEN_ACTION.equals(intent.getAction())) {
+            // Keep the Activity/WebView alive while JS drains pending writes before reloading.
+            // No native visibility latch: an older/not-yet-ready web layer falls back to the
+            // normal app-icon session/auto-lock policy instead of leaving a hidden WebView.
+            if (getBridge() != null) getBridge().triggerWindowJSEvent("seyf:notification-open");
+            return;
+        }
         RuStorePayPlugin.proceedIntent(getApplicationContext(), intent);
     }
 

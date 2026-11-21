@@ -25,7 +25,7 @@ function ruleBody(selector) {
 test('витрина: порядок разделов согласован (v3-визуал 17.09)', () => {
   assert.deepEqual(SECTIONS, [
     'passwords', 'totp', 'cards', 'requisites', 'wallets',
-    'seed', 'wifi', 'contacts', 'documents', 'notes',
+    'seed', 'wifi', 'contacts', 'documents', 'notes', 'loyalty',
   ]);
 });
 
@@ -57,12 +57,12 @@ test('симметрия меню: нечётная последняя плит�
     'нужно правило симметрии для меню (:last-child:nth-child(odd) -> span 2)');
 });
 
-test('симметрия витрины: нечётная последняя плитка на всю ширину', () => {
-  assert.ok(/\.vitrina \.vtile:last-child:nth-child\(odd\)\s*\{[^}]*grid-column:\s*1 \/ -1/.test(CSS),
-    'нужно правило симметрии для витрины (:last-child:nth-child(odd) -> span 2)');
+test('витрина: последняя нечётная плитка сохраняет обычную ширину', () => {
+  assert.ok(!/\.vitrina \.vtile:last-child:nth-child\(odd\)\s*\{[^}]*grid-column:\s*1 \/ -1/.test(CSS),
+    'последний раздел не должен растягиваться на две колонки');
 });
 
 test('порядок пунктов меню в index.html: пары Алексея 27.10.2026 (1.3.3), без «Обновления» и «Заблокировать»', () => {
   const ids = [...HTML.matchAll(/<button class="mi[^"]*" id="(m\w+)"/g)].map((m) => m[1]);
-  assert.deepEqual(ids, ['mBio', 'mKey', 'mTheme', 'mSections', 'mBackup', 'mArchive', 'mPro', 'mAbout']);
+  assert.deepEqual(ids, ['mBio', 'mKey', 'mTheme', 'mSections', 'mBackup', 'mTrash', 'mPro', 'mArchive', 'mAbout']);
 });

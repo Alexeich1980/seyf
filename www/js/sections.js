@@ -8,4 +8,4 @@
 // Порядок массива = порядок плиток на витрине и группировки поиска (v3-визуал, согласовано
 // 17.09): Пароли, Коды 2FA, Карты, Важные реквизиты, Электронные кошельки, Seed-фразы,
 // Пароли Wi-Fi, Избранные контакты, Документы, Заметки. store.js порядок не важен (ключи).
-export const SECTIONS = ['passwords', 'totp', 'cards', 'requisites', 'wallets', 'seed', 'wifi', 'contacts', 'documents', 'notes'];
+export const SECTIONS = ['passwords', 'totp', 'cards', 'requisites', 'wallets', 'seed', 'wifi', 'contacts', 'documents', 'notes', 'loyalty'];

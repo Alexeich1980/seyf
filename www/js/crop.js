@@ -71,13 +71,14 @@ export function rotateCropCCW(rect, imgW, imgH) {
 // canvas.offsetLeft/offsetTop). Заслон п.15 (корень бага «окно обрезки смещено влево»): рамка
 // раньше липла к левому краю сцены (offX не учитывался) и не покрывала правый край центрированной
 // картинки. DPR тут ни при чём: у кропа displayed-size == canvas.width (нет ретина-масштаба).
-export function framePlacement(crop, scale, offX = 0, offY = 0) {
+export function framePlacement(crop, scale, offX = 0, offY = 0, scaleY = scale) {
   const s = Number(scale) || 1;
+  const sy = Number(scaleY) || s;
   return {
-    left: Math.round(offX + crop.x * s),
-    top: Math.round(offY + crop.y * s),
-    width: Math.round(crop.w * s),
-    height: Math.round(crop.h * s),
+    left: offX + crop.x * s,
+    top: offY + crop.y * sy,
+    width: crop.w * s,
+    height: crop.h * sy,
   };
 }
 
@@ -101,4 +102,20 @@ export function cropCanvasPlan(rect, srcW, srcH, maxDim) {
 export const CROP_SRC_FACTOR = 2;
 export function cropSourceDims(w, h, maxDim, factor = CROP_SRC_FACTOR) {
   return fitDimensions(w, h, Math.max(1, Math.round(maxDim * factor)));
+}
+
+// Fixed viewport with cover zoom: inverse-mapped corners stay inside the source.
+// No expanded full-size rotation canvases, even for extreme aspect ratios.
+export const MAX_STRAIGHTEN = 10;
+export function straightenAngle(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.round(Math.max(-MAX_STRAIGHTEN, Math.min(MAX_STRAIGHTEN, n)) * 10) / 10 : 0;
+}
+export function straightenPlan(w, h, turns = 0, angle = 0) {
+  const q = ((Math.round(turns) % 4) + 4) % 4;
+  const width = q % 2 ? h : w, height = q % 2 ? w : h;
+  const a = straightenAngle(angle) * Math.PI / 180;
+  const c = Math.abs(Math.cos(a)), s = Math.abs(Math.sin(a));
+  return { w: width, h: height, radians: q * Math.PI / 2 + a,
+    zoom: Math.max(c + height / width * s, c + width / height * s) };
 }

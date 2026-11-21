@@ -120,6 +120,11 @@ export function seedDemoVault() {
     note: 'Пример реквизитов для перевода. Числовые поля копируются одним касанием.',
   });
 
+  createEntry(v, 'loyalty', {
+    demo: true, description: 'Демо-магазин', number: 'DEMO-12345',
+    barcodeType: 'CODE128', barcodeValue: 'DEMO-12345', images: [],
+    note: 'Пример дисконтной карты для знакомства с разделом.',
+  });
   return v;
 }
 

@@ -28,8 +28,8 @@ android {
         applicationId "ru.dorokhin.seyf"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 20607
-        versionName "1.3.3"
+        versionCode 20609
+        versionName "1.3.4"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         // Стор-сборка (build-apk.js --store передаёт -PseyfStore=true): MainActivity на старте
         // забывает путь к скачанной веб-сборке - код меняется только через RuStore (1.3.0).
@@ -41,6 +41,15 @@ android {
         }
     }
     buildTypes {
+        debug {
+            // Isolated synthetic-data QA never replaces a user's installed vault.
+            if (project.findProperty('seyfQa') == 'true') {
+                applicationIdSuffix '.qa'
+                versionNameSuffix '-qa'
+                resValue 'string', 'app_name', 'Сейф QA'
+                resValue 'string', 'title_activity_main', 'Сейф QA'
+            }
+        }
         release {
             // Явно: релизный APK НЕ отлаживаемый (иначе по USB читается приватная папка с vault,
             // WebView-отладка и снимки экрана включены - см. MainActivity). Проверяется aapt2.

@@ -16,10 +16,10 @@ function vaultWith(section, count, pro) {
 
 const EXPECTED = {
   passwords: 7, cards: 3, documents: 3, wallets: 3, notes: 3, wifi: 3, totp: 1,
-  seed: 1, contacts: 0, requisites: 0,
+  seed: 1, contacts: 0, requisites: 0, loyalty: 3,
 };
 
-test('FREE_LIMITS: все 10 разделов с финальными числами (задание п.24)', () => {
+test('FREE_LIMITS: все 11 разделов, в том числе 3 дисконтные карты', () => {
   assert.deepEqual(FREE_LIMITS, EXPECTED);
   for (const s of SECTIONS) assert.ok(s in FREE_LIMITS, 'нет лимита для раздела ' + s);
   assert.equal(PRO_PRICE_RUB, 990);

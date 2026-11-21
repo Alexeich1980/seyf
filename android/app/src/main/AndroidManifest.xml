@@ -52,6 +52,12 @@
             android:name="sdk_pay_scheme_value"
             android:value="ru.dorokhin.seyf.rustore" />
 
+        <receiver android:name=".DocumentReminderReceiver" android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -79,6 +85,8 @@
          Биометрия — ниже. -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- CAMERA: только живой скан QR при добавлении кода 2FA (getUserMedia + jsQR в вебвью).
          Наружу камера не транслируется, снимки не сохраняются. Ручной ввод секрета работает без неё. -->
     <uses-permission android:name="android.permission.CAMERA" />

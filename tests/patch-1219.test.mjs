@@ -44,8 +44,9 @@ test('п.14: ячейки значений переносятся overflow-wrap:
 });
 
 // --- п.15: рамка кропа учитывает смещение центрированного холста ---
-test('п.15: paintFrame берёт смещение холста (framePlacement + canvas.offsetLeft/Top)', () => {
-  assert.ok(/framePlacement\(crop, scale, canvas\.offsetLeft, canvas\.offsetTop\)/.test(DOCV),
+test('п.15: paintFrame учитывает дробное смещение холста относительно сцены', () => {
+  assert.match(DOCV,
+    /framePlacement\(crop, scaleX, \(canvasRect\.left - stageRect\.left\) \/ transformX - stage\.clientLeft,\s*\(canvasRect\.top - stageRect\.top\) \/ transformY - stage\.clientTop, scaleY\)/,
     'paintFrame обязан прибавлять смещение холста, иначе рамка уезжает влево от картинки');
 });
 
@@ -58,7 +59,8 @@ test('п.12: haptic на сохранении, удалении, копиров�
   // 1.3.2: onSaved стал блоком (после отклика - окно оценки review.afterSave), haptic - первым
   assert.ok(/onSaved: \(\) => \{\s*haptic\('light'\);\s*\/\/ п\.12/.test(APP), 'нет haptic на успешном сохранении записи');
   // удаление (заметнее - medium), минимум два места удаления
-  assert.ok(/Store\.deleteEntry\(state\.vault, section, entry\.id\);\s*haptic\('medium'\);/.test(APP), 'нет haptic(medium) на удалении');
+  const deletion = APP.slice(APP.indexOf('async function deleteEntryFlow('), APP.indexOf('function renderList('));
+  assert.match(deletion, /await withVaultTransaction[\s\S]*moveToTrash[\s\S]*haptic\('medium'\)/, 'отклик после записи в корзину');
   // разблокировка сейфа
   assert.ok(/hideSplash\(\);[\s\S]{0,80}haptic\('light'\)/.test(APP), 'нет haptic на разблокировке');
 });

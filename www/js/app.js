@@ -52,6 +52,13 @@ import { shouldOnboard, markOnboarded, ONBOARD_POINTERS, ONBOARD_ITEMS, ONBOARD_
 import { ensureArchive, opensVaultKey } from './archive.js';
 import { initArchiveUI, openArchive, maybeRemindArchive } from './archive-ui.js';
 import { FAQ, FAQ_TITLE } from './faq.js';   // 1.3.3: «Частые вопросы» в «О приложении»
+import * as LoyaltyUI from './loyalty-ui.js';
+import { moveToTrash, withVaultTransaction } from './trash.js';
+import { initTrashUI, openTrash, pruneTrashOnUnlock } from './trash-ui.js';
+import { documentReminderTimes } from './document-reminders.js';
+import { initDocumentRemindersUI, showDocumentReminders, openDocumentReminders } from './document-reminders-ui.js';
+import { generateArchivePassword, assessPassword } from './password-tools.js';
+import { initPasswordToolsUI, openGenerator, openPasswordAudit } from './password-tools-ui.js';
 
 // Единый охранник буфера обмена: копирование секрета + очистка по TTL и при блокировке.
 // 1.2.24 (п.1): флаг «буфер надо очистить» переживает перезагрузку при блокировке (секрет туда не
@@ -286,8 +293,14 @@ function styledConfirm({ title, message, confirmText = 'Сохранить', den
       </div>`;
     const done = (v) => { document.removeEventListener('keydown', onKey, true); back.remove(); resolve(v); };
     const onKey = (e) => {
+      if (!back.isConnected) return;
       if (e.key === 'Escape') { e.stopPropagation(); done('cancel'); }
-      else if (e.key === 'Enter') { e.stopPropagation(); done('save'); }
+      else if (e.key === 'Enter') {
+        e.stopPropagation();
+        // A focused button owns its native Enter activation (including Cancel/Open).
+        if (m.contains(document.activeElement) && document.activeElement.tagName === 'BUTTON') return;
+        e.preventDefault(); done('save');
+      }
     };
     m.querySelector('.cancel').onclick = () => done('cancel');
     m.querySelector('.deny').onclick = () => done('deny');
@@ -1069,6 +1082,8 @@ const UNSAVED_AT_LOCK_KEY = 'seyf_unsaved_at_lock';
 const serialSave = makeSerialSaver(async (setStage, alive, beat) => {
   if (state.demoMode) throw new Error('demo-mode: сохранение запрещено (данные не сохраняются)');
   if (!state.vault || !state.dek) throw new Error('locked: сейф заперт');
+  const savedVault = state.vault;
+  const reminderTimes = documentReminderTimes(savedVault);
   setStage('reencrypt');
   let enc = await C.reencryptData(state.file, state.dek, state.vault);
   if (!alive()) { enc = null; throw new Error('abandoned'); }
@@ -1076,8 +1091,17 @@ const serialSave = makeSerialSaver(async (setStage, alive, beat) => {
   enc = null;
   setStage('write');
   await guardedStoreSave(state.file, { onProgress: beat });
+  // The actual write can finish after the caller timed out, or during an internal retry.
+  // Schedule only dates belonging to this saved snapshot, after confirmed persistence.
+  if (alive() && state.vault === savedVault) syncDocumentSchedules(reminderTimes).catch(() => {});
 }, { timeoutMs: SAVE_TIMEOUT_MS, onChange: (st) => syncUnsavedBanner(st) });
 function saveFile() { return serialSave(); }
+// Native storage receives only future timestamps, never document names or vault data.
+async function syncDocumentSchedules(times) {
+  const plugin = window.NativePlugins?.DocumentReminder;
+  if (!plugin || !state.vault || state.demoMode) return;
+  return plugin.sync({ timestamps: times || documentReminderTimes(state.vault) });
+}
 // Для update.js (A2): OTA-перезапуск запрещён, пока очередь записи не пуста.
 window.SeyfSave = {
   pending: () => serialSave.unsaved(),
@@ -1456,7 +1480,7 @@ async function attemptBio(counts) {
       // helloBtn остаётся основной кнопкой, «Войти по мастер-паролю» - неприметный запасной путь.
       btn.classList.remove('hidden');
       $('#lockError').textContent = '';
-      if (hint) hint.textContent = 'Приложите палец или нажмите «Войти по биометрии».';
+      if (hint) hint.textContent = 'Для повторной попытки нажмите «Войти по биометрии».';
     }
   }
 }
@@ -1577,10 +1601,13 @@ async function onPwUnlock(e) {
 
 async function afterUnlock(res, opts = {}) {
   state.dek = res.dek; state.vault = ensureArchive(ensureSections(res.vault)); state.dekRaw = res.dekRaw || null;
+  try { await pruneTrashOnUnlock(); }
+  catch { toast('Не удалось очистить просроченные записи корзины. Проверьте резервную копию.'); }
+  syncDocumentSchedules().catch(() => {});
   // Мягкое предложение включить вход по биометрии - ТОЛЬКО после создания пароля (v3-auth),
   // не на каждом входе. Требует разблокированного ключа и доступной биометрии.
   if (opts.offerBio && !state.file.helloWrap && state.dekRaw && await Auth.bioAvailable()) {
-    if (await dlgConfirm('Включить вход по биометрии? Дальше сможете открывать сейф одним касанием, а мастер-пароль останется запасным входом.', { title: 'Вход по биометрии', ok: 'Включить', cancel: 'Позже' })) {
+    if (await dlgConfirm('Включить вход по биометрии? Дальше сможете открывать «Сейф» с помощью биометрии, а мастер-пароль останется запасным входом.', { title: 'Вход по биометрии', ok: 'Включить', cancel: 'Позже' })) {
       try {
         await Auth.bioVerify();
         const bioKey = C.randomBytes(32);
@@ -1600,6 +1627,8 @@ async function afterUnlock(res, opts = {}) {
   startAutoLock();
   autoRestoreQuietly();
   prefetchStorePrice();   // М1: цена магазина для меню и окна покупки - один запрос за запуск
+  // Draft contents are available only after successful password/biometric decryption.
+  LoyaltyUI.resumeDraft();
   // 1.3.3: напоминание о резервной копии - после разблокировки, не чаще раза в месяц
   try { const ls = lsGet(); Nudge.writeStamp(ls, Nudge.withFirstSeen(Nudge.readStamp(ls), Date.now())); } catch (e) {}
   setTimeout(() => { try { if (!maybeRemindBackup()) maybeRemindArchive(); } catch (e) {} }, 900);   // 1.3.3: архив - раз в полгода, если копия не напоминала
@@ -1730,6 +1759,7 @@ function renderGridShell(shell) {
         <button id="lockBtn" class="ic-btn" title="Заблокировать" aria-label="Заблокировать сейф">${icon('lock', 22)}</button>
       </header>
     </div>
+    <div id="documentReminders"></div>
     <div id="grid" class="vitrina"></div>
     <div id="list" hidden></div>`;
   $('#menuBtn').querySelector('img'); // noop guard (menu bound в renderShell-каркасе)
@@ -1738,6 +1768,7 @@ function renderGridShell(shell) {
   const sIc = shell.querySelector('.search-ic'); if (sIc) sIc.innerHTML = icon('search', 18);
   const clr = shell.querySelector('#searchClear'); if (clr) clr.innerHTML = icon('close', 18);
   renderGrid();
+  if (!state.demoMode) showDocumentReminders($('#documentReminders'));
   // Поиск глобальный (решение развилки): ввод скрывает плитки и показывает результаты по всем
   // разделам; пустой запрос возвращает витрину. Внутри раздела поиска нет — назад на витрину.
   // ЗАСЛОН device-only (корень «поиск не ищет на телефоне»): раньше слушали ТОЛЬКО 'input'
@@ -1901,7 +1932,7 @@ function addReorderArrows(card, section, entry) {
 // стало меньше двух (удаление) — режим сам выключается, чтобы не залипнуть в пустом режиме.
 function syncReorderBtn(searching) {
   const rob = $('#reorderBtn'); if (!rob) return;
-  const canReorder = !searching && (state.vault.sections[current] || []).length >= 2;
+  const canReorder = current !== 'loyalty' && !searching && (state.vault.sections[current] || []).length >= 2;
   rob.hidden = !canReorder;
   if (!canReorder) exitReorderMode();
   else setReorderMode(reorderModeOn());   // синхронизировать подпись/бар с текущим состоянием
@@ -2253,6 +2284,7 @@ function bindMenuOnce() {
   on('mTheme', () => { toggleTheme(); updateMenuInfo(); closeMenu(); });
   on('mSections', () => { closeMenu(); openSectionVisibility(); });
   on('mArchive', () => { closeMenu(); openArchive(); });
+  on('mTrash', () => { closeMenu(); openTrash(); });
   on('mBackup', () => {
     // Сначала закрываем меню, потом показываем окно (иначе плашка бэкапа всплывает ЗА меню, #16).
     closeMenu();
@@ -2443,7 +2475,7 @@ function openAbout() {
     <ul class="about-list">
       <li>Разделы - плитками на главном; поиск ищет сразу по всем.</li>
       <li>Кнопка «+» добавляет запись; тап по карточке разворачивает её.</li>
-      <li>Секреты скрыты и копируются одним касанием; «Глаз» в верхней панели показывает все разом.</li>
+      <li>Секреты скрыты и копируются одним касанием; значок глаза в верхней панели показывает все разом.</li>
     </ul>
     <div class="about-sec">Безопасность</div>
     <ul class="about-list">
@@ -2668,11 +2700,25 @@ function handlers(section, entry) {
 // Удаление записи (A9): подтверждение -> удаление в памяти -> перерисовка СРАЗУ -> запись;
 // сбой записи - toast (раньше необработанный reject: список не обновлялся, ошибка молчала).
 async function deleteEntryFlow(section, entry) {
-  if (!requireRealVault()) return;
-  if (!(await dlgConfirm('Удалить запись?', { title: 'Удаление', ok: 'Удалить', danger: true }))) return;
-  Store.deleteEntry(state.vault, section, entry.id);
-  haptic('medium');   // п.12
-  persistAfterRender('Запись удалена, но не записалась на устройство');
+  if (!requireRealVault()) return false;
+  const vault = state.vault;
+  const loyaltyTarget = () => vault.sections?.loyalty?.find(item => item.id === entry.id);
+  if (section === 'loyalty' && loyaltyTarget() !== entry) return false;
+  const message = section === 'loyalty'
+    ? `Переместить карту «${entry.description || 'Без названия'}» в корзину? Её можно будет восстановить в течение 30 дней.`
+    : 'Переместить запись в корзину? Её можно будет восстановить в течение 30 дней.';
+  if (!(await dlgConfirm(message, { title: 'Удаление', ok: 'В корзину', danger: true }))) return false;
+  if (locking || state.vault !== vault) return false;
+  if (section === 'loyalty' && loyaltyTarget() !== entry) return false;
+  try {
+    await withVaultTransaction(vault, () => moveToTrash(vault, section, entry.id), saveFile);
+    if (state.vault !== vault || locking) return false;
+    refreshAfterMutation(); haptic('medium'); toast('Запись в корзине. Восстановление в меню «Корзина».');
+    return true;
+  } catch (e) {
+    if (state.vault === vault && !locking) { refreshAfterMutation(); toast('Не удалось записать изменения. ' + saveErrorLabel(e)); }
+    return false;
+  }
 }
 
 function renderList(query = '') {
@@ -2719,6 +2765,10 @@ function renderList(query = '') {
         + `<span class="search-group-count">${entries.length}</span>`;
       list.appendChild(gh);
       for (const entry of entries) {
+        if (section === 'loyalty') {
+          const card = LoyaltyUI.renderLoyaltyCard(entry); card.dataset.section = section;
+          list.appendChild(card); continue;
+        }
         const card = UI.renderEntryCard(section, entry, handlers(section, entry));
         decorateCardIcon(card, section, entry);
         decorateCardTitle(card, section, entry);
@@ -2741,6 +2791,17 @@ function renderList(query = '') {
   }
 
   const raw = state.vault.sections[current];
+  if (current === 'loyalty') { LoyaltyUI.renderList(list, raw); return; }
+  if (current === 'passwords' || current === 'documents') {
+    const tools = document.createElement('div'); tools.className = 'feature-tools';
+    const btn = document.createElement('button'); btn.type = 'button';
+    btn.textContent = current === 'passwords' ? 'Проверить пароли' : 'Сроки документов';
+    btn.onclick = current === 'passwords' ? () => openPasswordAudit({ onOpenEntry: ({section, id}) => {
+      const entry = state.vault?.sections?.[section]?.find(e => e.id === id);
+      if (entry) { enterSection(section); openEditor(section, entry); }
+    } }) : () => openDocumentReminders();
+    tools.append(btn); list.append(tools);
+  }
   if (!raw.length) { const p = document.createElement('p'); p.className = 'empty'; p.textContent = 'Пусто. Нажмите «+».'; list.appendChild(p); return; }
   // Порядок показа (8f B.9): ручной порядок массива главный, избранные закреплены сверху.
   const arr = displayOrder(raw);
@@ -3057,6 +3118,7 @@ function openEditor(section, entry) {
     const g = Gate.canAdd(state.vault, section, hasFullAccess());
     if (!g.allowed) { openPaywall({ section, limit: g.limit, reopen: () => openEditor(section, null) }); return; }
   }
+  if (section === 'loyalty') { LoyaltyUI.openEditor(entry); return; }
   const data = entry ? { ...entry } : {};
   const cfs = entry ? (entry.customFields || []).map((c) => ({ ...c })) : [];
   let dirty = false;
@@ -3197,12 +3259,15 @@ function openEditor(section, entry) {
       g.innerHTML = `<span class="gen-label">Сгенерировать новый:</span>
         <button type="button" class="gen-rnd">🎲 пароль</button>
         <button type="button" class="gen-phrase">🔤 фразу</button>`;
-      const upd = () => { const s = Gen.estimateStrength(input.value); strength.textContent = input.value ? s.label : ''; strength.dataset.score = s.score; };
+      const upd = () => { const s = assessPassword(input.value); strength.textContent = input.value ? (s.weak ? 'Нужна проверка' : s.status === 'unknown' ? 'Стойкость фразы не оценена' : 'Нет явных признаков слабого пароля') : ''; strength.dataset.score = s.weak ? '1' : s.status === 'unknown' ? '2' : '3'; };
       input.addEventListener('input', upd);
       // Сгенерированный пароль сразу показываем (глаз открыт): его нужно видеть, чтобы запомнить/проверить.
       const showGen = () => { if (holder.revealSecret) holder.revealSecret(true); };
-      g.querySelector('.gen-rnd').onclick = () => { input.value = Gen.generatePassword({ length: 18 }); showGen(); upd(); };
-      g.querySelector('.gen-phrase').onclick = () => { input.value = Gen.generatePassphrase({ words: 5 }); showGen(); upd(); };
+      g.querySelector('.gen-rnd').onclick = () => openGenerator({ onUse: value => {
+        if (!back.isConnected || locking) return;
+        input.value = value; dirty = true; showGen(); upd();
+      } });
+      g.querySelector('.gen-phrase').onclick = () => { input.value = generateArchivePassword(); dirty = true; showGen(); upd(); };
       wrap.appendChild(g); upd();
     } else {
       wrap.appendChild(holder);
@@ -3811,9 +3876,12 @@ function onForeground() {
   autoLock.arm();   // в пределах окна: тот же экран остаётся, таймер бездействия взводим заново
 }
 let locking = false;
+window.addEventListener('seyf:notification-open', () => { if (state.vault) lockNow(); });
 async function lockNow() {
   if (locking) return;                  // защита от двойного входа (фон + таймер)
   locking = true;                       // блокировка важнее несохранённой правки
+  window.dispatchEvent(new Event('seyf:locking'));
+  hideShellForLock();
   stopTotpTimer();
   if (autoLock) autoLock.disarm();
   // Очищаем буфер ДО reload: иначе таймер очистки гибнет со страницей и секрет
@@ -3872,6 +3940,35 @@ window.addEventListener('unhandledrejection', (e) => {
 });
 
 // 1.3.3: окна «Архива для близких» получают готовые окна и запись приложения (свои не изобретают).
+const featureDeps = {
+  get state() { return state; },
+  saveFile, toast, dlgAlert, dlgConfirm, styledConfirm, stylePicker, closeOnBackdrop, isTopModal, haptic,
+  saveErrorLabel, requireRealVault, withSystemWindow, lsGet,
+  schema: UI.FIELD_SCHEMA, sectionLabels: UI.SECTION_LABELS,
+  refresh: refreshAfterMutation,
+};
+initTrashUI(featureDeps);
+initDocumentRemindersUI({ ...featureDeps,
+  requestDocumentReminderPermission: async () => {
+    const plugin = window.NativePlugins?.DocumentReminder;
+    if (!plugin) return false;
+    const result = await withSystemWindow(() => plugin.requestPermissions());
+    return result.notifications === 'granted' && result.enabled !== false;
+  },
+  syncDocumentReminders: syncDocumentSchedules,
+});
+initPasswordToolsUI(featureDeps);
+LoyaltyUI.initLoyaltyUI({ ...featureDeps,
+  cleanupCameraTemp: cleanCamTemp,
+  copyText: copySecret,
+  canAdd: () => {
+    const g = Gate.canAdd(state.vault, 'loyalty', hasFullAccess());
+    if (g.used >= INPUT_LIMITS.recordsPerSection) { toast('Достигнут предел записей раздела.'); return false; }
+    if (!g.allowed) { openPaywall({ section: 'loyalty', limit: g.limit, reopen: () => openEditor('loyalty', null) }); return false; }
+    return true;
+  },
+  deleteEntry: entry => deleteEntryFlow('loyalty', entry),
+});
 initArchiveUI({
   get state() { return state; },
   saveFile, toast, dlgAlert, dlgConfirm, styledConfirm, stylePicker, closeOnBackdrop, isTopModal, haptic,

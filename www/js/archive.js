@@ -10,7 +10,7 @@
 // попадает в резервную копию .dat). Старые хранилища без archive открываются как раньше:
 // normalizeArchive дозаполняет пустой архив, остальное в vault не трогает.
 
-import { estimateStrength } from './generator.js';
+import { assessPassword } from './password-tools.js';
 
 export const ARCHIVE_V = 1;
 const NBSP = '\u00a0';
@@ -511,13 +511,10 @@ export function renderSheetHtml(model) {
 }
 
 // ---------- пароль файла (вариант 2) ----------
-// Ревью 1.3.3 В2: планка - оценка стойкости приложения (generator.estimateStrength, «средний» и выше) плюс
-// запрет того, что подбирают первым: популярные слова (password, пароль, qwerty...), ряды клавиатуры и
-// алфавита (1234, qwerty, йцукен, абвг), повторы (aaaa, 1111, abab). Такие куски вырезаются, и остаток
-// должен быть не короче FILE_PW_CORE знаков. Подсказка ведёт к 3-4 случайным словам (кнопка «Придумать пароль»).
-export const FILE_PW_MIN = 10;
+// New export validation only; decryption and the version-1 envelope remain unchanged.
+export const FILE_PW_MIN = 16;
 export const FILE_PW_CORE = 8;
-export const FILE_PW_TIP = 'Нажмите «Придумать пароль» или возьмите 3-4 случайных слова.';
+export const FILE_PW_TIP = 'Нажмите «Придумать пароль»: приложение выберет 6 случайных слов.';
 export const FILE_PW_GEN = 'Придумать пароль';
 const POPULAR = ['password', 'passw0rd', 'pass', 'qwerty', 'admin', 'letmein', 'welcome', 'iloveyou', 'monkey', 'dragon',
   'football', 'master', 'sunshine', 'princess', 'superman', 'secret', 'login', 'hello', 'qwertz', 'azerty', 'zaq1', 'xsw2',
@@ -546,14 +543,15 @@ export function passwordCore(pw) {
   out = out.replace(/(.{1,4}?)\1+/g, '$1');
   return out.split('\u0000').join('');
 }
-export function filePasswordProblem(pw, pw2) {
+// generatedPassword is trusted ephemeral UI provenance, never restored from storage.
+export function filePasswordProblem(pw, pw2, { generatedPassword = null } = {}) {
   const s = String(pw == null ? '' : pw).normalize('NFC');
   if (!s.trim()) return 'Придумайте пароль для файла. ' + FILE_PW_TIP;
-  if (s.length < FILE_PW_MIN) return 'Пароль короче ' + FILE_PW_MIN + ' знаков. ' + FILE_PW_TIP;
-  if (passwordCore(s).length < FILE_PW_CORE || estimateStrength(s).score < 2) {
-    return 'Слишком простой пароль, такие подбирают первыми. ' + FILE_PW_TIP;
-  }
   if (s !== String(pw2 == null ? '' : pw2).normalize('NFC')) return 'Пароли не совпадают.';
+  if (s.length < FILE_PW_MIN) return 'Пароль короче ' + FILE_PW_MIN + ' знаков. ' + FILE_PW_TIP;
+  if (s !== generatedPassword && assessPassword(s).needsReview) {
+    return 'Возможно, это слишком простой пароль или предсказуемая фраза. ' + FILE_PW_TIP;
+  }
   return '';
 }
 // М6 (ревью 1.3.3): «это мастер-пароль?» - снятием обёртки ключа (pwWrap), без расшифровки всего сейфа.

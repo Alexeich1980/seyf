@@ -35,15 +35,16 @@ test('кроп: две кнопки-иконки ↺/↻ с aria-label «Пов�
   assert.match(DV, /class="crop-rotate crop-rotate-ccw"[^>]*aria-label="Повернуть влево"[^>]*>\s*<span aria-hidden="true">↺<\/span>/);
   assert.match(DV, /class="crop-rotate crop-rotate-cw"[^>]*aria-label="Повернуть вправо"[^>]*>\s*<span aria-hidden="true">↻<\/span>/);
   assert.ok(!DV.includes('⟳ Повернуть'), 'осталась старая одиночная кнопка «⟳ Повернуть»');
-  assert.ok(DV.includes('Кнопки поворота - если фото боком.'), 'подсказка под рамкой не обновлена');
+  assert.ok(DV.includes('Выравнивайте фото по сетке'), 'нет подсказки для выравнивания');
   assert.ok(!/«Повернуть» - если фото боком/.test(DV), 'осталась старая подсказка про «Повернуть»');
 });
 test('кроп: ↺ вызывает rotateCropCCW (против часовой), ↻ - rotateCropCW', () => {
   const c = code(DV);
   assert.match(c, /\.crop-rotate-ccw'\)\.onclick = \(\) => rotate\(false\)/);
   assert.match(c, /\.crop-rotate-cw'\)\.onclick = \(\) => rotate\(true\)/);
-  assert.match(c, /cw \? rotateCropCW\(crop, base\.width, base\.height\) : rotateCropCCW\(crop, base\.width, base\.height\)/);
-  assert.match(c, /ctx\.rotate\(-Math\.PI \/ 2\)/, 'нет отрисовки поворота против часовой');
+  assert.match(c, /cw \? rotateCropCW\(crop, view\.w, view\.h\) : rotateCropCCW\(crop, view\.w, view\.h\)/);
+  // Signed rotations and actual output landmarks are exercised by crop-round2 browser QA.
+  assert.match(c, /ctx\.rotate\(view\.radians\)/, 'нет отрисовки общего преобразования');
 });
 test('кроп: кнопка поворота выглядит кнопкой (рамка+фон) и тап-зона >= 44px', () => {
   const m = CSS.match(/\.crop-rotate \{([^}]*)\}/);

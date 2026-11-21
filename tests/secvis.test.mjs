@@ -106,3 +106,14 @@ test('разворот: футер действий скрыт до .expanded (C
   const app = fs.readFileSync(path.join(WWW, 'js', 'app.js'), 'utf8');
   assert.match(app, /bindCardExpand\(/);
 });
+
+// 1.3.4: новый раздел появляется после обновления, прежние настройки не сбрасываются.
+test('обновление: дисконтные карты видны даже при скрытых старых разделах, потом их можно скрыть', () => {
+  const data = new Map([['seyf_hidden_sections', JSON.stringify(['cards', 'notes'])]]);
+  const storage = { getItem: k => data.get(k), setItem: (k, v) => data.set(k, v) };
+  const all = ['passwords', 'cards', 'notes', 'loyalty'];
+  assert.deepEqual(visibleSections(all, storage), ['passwords', 'loyalty']);
+  toggleSectionHidden(storage, all, 'loyalty');
+  assert.deepEqual(visibleSections(all, storage), ['passwords']);
+  assert.deepEqual(JSON.parse(data.get('seyf_hidden_sections')), ['cards', 'notes', 'loyalty']);
+});

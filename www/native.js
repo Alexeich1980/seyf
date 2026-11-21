@@ -12,6 +12,8 @@
       Filesystem: C.registerPlugin('Filesystem'),
       NativeBiometric: C.registerPlugin('NativeBiometric'),
       SaveFile: C.registerPlugin('SaveFile'),
+      Brightness: C.registerPlugin('Brightness'),
+      DocumentReminder: C.registerPlugin('DocumentReminder'),
       RuStorePay: C.registerPlugin('RuStorePay'),
       RuStoreUpdate: C.registerPlugin('RuStoreUpdate'),   // 1.3.2: обновления стор-сборки (storeupdate.js)
       RuStoreReview: C.registerPlugin('RuStoreReview'),   // 1.3.2: окно оценки (js/review.js)

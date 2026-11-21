@@ -3,7 +3,7 @@
 // логика (модель, mime, математика зума) — в documents.js; здесь браузерная обвязка.
 // PDF рендерим постранично через вендорный pdf.js (Mozilla, Apache-2.0), без сервисов Google.
 import * as D from './documents.js';
-import { defaultCrop, moveCorner, rotateDims, rotateCropCW, rotateCropCCW, cropCanvasPlan, framePlacement, cropSourceDims } from './crop.js';
+import { defaultCrop, moveCorner, rotateCropCW, rotateCropCCW, cropCanvasPlan, framePlacement, cropSourceDims, straightenAngle, straightenPlan } from './crop.js';
 
 const MAX_IMAGE_DIM = 2000;   // даунскейл вложений-картинок: паспорт читаем/зумируем, вес ~сотни КБ
 const JPEG_QUALITY = 0.82;
@@ -306,17 +306,38 @@ function msg(text) { const p = document.createElement('p'); p.className = 'dv-ms
 export function openCropEditor(dataUrl) {
   return new Promise((resolve, reject) => {
     const img = new Image();
-    const broken = () => { const e = new Error('crop-broken'); e.code = 'crop-broken'; reject(e); };
+    const broken = () => { const e = new Error('crop-broken'); e.code = 'crop-broken'; reject(e); cancel(); };
+    let closed = false;
+    let dispose = () => {};
+    const cancel = () => {
+      if (closed) return;
+      closed = true; dispose(); img.onload = img.onerror = null; img.src = '';
+      window.removeEventListener('seyf:locking', cancel);
+      window.removeEventListener('pagehide', cancel);
+      resolve(null);
+    };
+    window.addEventListener('seyf:locking', cancel);
+    window.addEventListener('pagehide', cancel);
     img.onerror = broken;
     img.onload = () => {
-      // base — текущая (возможно повёрнутая) картинка, уменьшенная до 2*MAX_IMAGE_DIM (C8)
-      let base = document.createElement('canvas');
+      if (closed) return;
+      // base — неизменяемый исходник, уменьшенный один раз до 2*MAX_IMAGE_DIM.
+      const base = document.createElement('canvas');
       const nat = cropSourceDims(img.naturalWidth || img.width, img.naturalHeight || img.height, MAX_IMAGE_DIM);
       base.width = nat.w; base.height = nat.h;
       const bctx = base.getContext('2d');
       if (!bctx) { broken(); return; }
       try { bctx.drawImage(img, 0, 0, nat.w, nat.h); } catch (e) { broken(); return; }
-      let crop = defaultCrop(base.width, base.height);
+      img.onload = img.onerror = null; img.src = '';
+      let turns = 0, angle = 0;
+      let view = straightenPlan(base.width, base.height, turns, angle);
+      let crop = defaultCrop(view.w, view.h);
+      const render = (ctx) => {
+        ctx.translate(view.w / 2, view.h / 2);
+        ctx.rotate(view.radians);
+        ctx.scale(view.zoom, view.zoom);
+        ctx.drawImage(base, -base.width / 2, -base.height / 2);
+      };
 
       const { back, m } = makeBackdrop('crop-editor');
       m.innerHTML = `
@@ -327,12 +348,17 @@ export function openCropEditor(dataUrl) {
         </div>
         <div class="crop-stage">
           <canvas class="crop-canvas"></canvas>
-          <div class="crop-frame">
+          <div class="crop-frame"><span class="crop-grid" aria-hidden="true"></span>
             <span class="crop-h nw"></span><span class="crop-h ne"></span>
             <span class="crop-h sw"></span><span class="crop-h se"></span>
           </div>
         </div>
-        <p class="crop-hint">Потяните за углы рамки, лишнее по краям (стол, фон) уйдёт. Кнопки поворота - если фото боком.</p>
+        <div class="crop-adjust">
+          <label for="crop-angle">Наклон <output id="crop-angle-value" for="crop-angle">0°</output></label>
+          <input id="crop-angle" class="crop-angle" type="range" min="-10" max="10" step="0.1" value="0" aria-describedby="crop-adjust-hint">
+          <button type="button" class="crop-reset">Сбросить правки</button>
+        </div>
+        <p id="crop-adjust-hint" class="crop-adjust-hint">Выравнивайте фото по сетке, обрезайте — за углы рамки. При наклоне края немного обрезаются.</p>
         <div class="modal-actions">
           <button type="button" class="cancel crop-cancel">Отмена</button>
           <button type="button" class="save crop-done">Готово</button>
@@ -340,21 +366,32 @@ export function openCropEditor(dataUrl) {
       const stage = m.querySelector('.crop-stage');
       const canvas = m.querySelector('.crop-canvas');
       const frame = m.querySelector('.crop-frame');
-      let scale = 1;
+      let scaleX = 1, scaleY = 1;
 
       const draw = () => {
+        if (closed) return;
+        // A resize changes screen-to-image mapping; a continuing old drag must not jump.
+        drag = null;
         // вписываем base в доступную ширину сцены (высота ограничена CSS max-height). C7: у сцены
         // внутренний отступ под ручки углов - вычитаем его, иначе холст упрётся в край и ручки обрежутся.
         const cs = window.getComputedStyle ? window.getComputedStyle(stage) : null;
         const padX = cs ? (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0) : 0;
         const avail = Math.max(120, (stage.clientWidth || 320) - padX);
-        const maxH = Math.round((window.innerHeight || 700) * 0.5);
-        scale = Math.min(avail / base.width, maxH / base.height, 1) || 1;
-        const dw = Math.max(1, Math.round(base.width * scale));
-        const dh = Math.max(1, Math.round(base.height * scale));
+        const maxH = Math.max(90, Math.min((window.innerHeight || 700) * 0.42, (window.innerHeight || 700) - 340));
+        const scale = Math.min(avail / view.w, maxH / view.h, 1) || 1;
+        const dw = Math.max(1, Math.round(view.w * scale));
+        const dh = Math.max(1, Math.round(view.h * scale));
         canvas.width = dw; canvas.height = dh;
         canvas.style.width = dw + 'px'; canvas.style.height = dh + 'px';
-        canvas.getContext('2d').drawImage(base, 0, 0, dw, dh);
+        // max-width may clamp an integer bitmap to a fractional CSS content width.
+        // Map the frame to the used layout size, independently of modal animation.
+        const canvasStyle = window.getComputedStyle(canvas);
+        scaleX = (parseFloat(canvasStyle.width) || dw) / view.w;
+        scaleY = (parseFloat(canvasStyle.height) || dh) / view.h;
+        try {
+          const ctx = canvas.getContext('2d');
+          ctx.scale(dw / view.w, dh / view.h); render(ctx);
+        } catch (e) { broken(); return; }
         paintFrame();
       };
       const paintFrame = () => {
@@ -363,7 +400,13 @@ export function openCropEditor(dataUrl) {
         // абсолютна относительно сцены; раньше её left=crop.x*scale считался от левого края
         // СЦЕНЫ -> рамка уезжала влево и не покрывала правый край картинки. Прибавляем реальное
         // смещение холста (canvas.offsetLeft/offsetTop) через framePlacement (тест+мутация).
-        const p = framePlacement(crop, scale, canvas.offsetLeft, canvas.offsetTop);
+        // Preserve fractional layout offsets; offsetLeft rounds them and can shift a thin edge.
+        const canvasRect = canvas.getBoundingClientRect(), stageRect = stage.getBoundingClientRect();
+        const stageStyle = window.getComputedStyle(stage);
+        const transformX = stageRect.width / parseFloat(stageStyle.width) || 1;
+        const transformY = stageRect.height / parseFloat(stageStyle.height) || 1;
+        const p = framePlacement(crop, scaleX, (canvasRect.left - stageRect.left) / transformX - stage.clientLeft,
+          (canvasRect.top - stageRect.top) / transformY - stage.clientTop, scaleY);
         frame.style.left = p.left + 'px';
         frame.style.top = p.top + 'px';
         frame.style.width = p.width + 'px';
@@ -373,24 +416,36 @@ export function openCropEditor(dataUrl) {
       // перетаскивание углов + сдвиг всей рамки за середину
       let drag = null;
       const onDown = (e) => {
+        if (drag || (e.pointerType === 'mouse' && e.button !== 0)) return;
         const h = e.target.closest('.crop-h');
-        const corner = h ? [...h.classList].find((c) => ['nw', 'ne', 'sw', 'se'].includes(c)) : null;
-        drag = { corner, x: e.clientX, y: e.clientY, rect: { ...crop } };
+        let corner = h ? [...h.classList].find((c) => ['nw', 'ne', 'sw', 'se'].includes(c)) : null;
+        if (corner) {
+          // Large touch targets overlap on a small selection. Choose the visible
+          // corner nearest the finger, rather than whichever sibling paints last.
+          const rect = frame.getBoundingClientRect();
+          const points = { nw: [rect.left, rect.top], ne: [rect.right, rect.top],
+            sw: [rect.left, rect.bottom], se: [rect.right, rect.bottom] };
+          const distance = key => (points[key][0] - e.clientX) ** 2 + (points[key][1] - e.clientY) ** 2;
+          for (const candidate of Object.keys(points)) {
+            if (distance(candidate) < distance(corner)) corner = candidate;
+          }
+        }
+        drag = { pointerId: e.pointerId, corner, x: e.clientX, y: e.clientY, rect: { ...crop } };
         try { (h || frame).setPointerCapture(e.pointerId); } catch (err) {}
         e.preventDefault(); e.stopPropagation();
       };
       const onMove = (e) => {
-        if (!drag) return;
-        const dx = (e.clientX - drag.x) / scale, dy = (e.clientY - drag.y) / scale;
-        if (drag.corner) crop = moveCorner(drag.rect, drag.corner, dx, dy, base.width, base.height);
+        if (!drag || drag.pointerId !== e.pointerId) return;
+        const dx = (e.clientX - drag.x) / scaleX, dy = (e.clientY - drag.y) / scaleY;
+        if (drag.corner) crop = moveCorner(drag.rect, drag.corner, dx, dy, view.w, view.h);
         else {           // тянем всю рамку
           crop = { ...drag.rect };
-          crop.x = Math.min(Math.max(0, Math.round(drag.rect.x + dx)), base.width - crop.w);
-          crop.y = Math.min(Math.max(0, Math.round(drag.rect.y + dy)), base.height - crop.h);
+          crop.x = Math.min(Math.max(0, Math.round(drag.rect.x + dx)), view.w - crop.w);
+          crop.y = Math.min(Math.max(0, Math.round(drag.rect.y + dy)), view.h - crop.h);
         }
         paintFrame();
       };
-      const onUp = () => { drag = null; };
+      const onUp = e => { if (drag?.pointerId === e.pointerId) drag = null; };
       frame.addEventListener('pointerdown', onDown);
       window.addEventListener('pointermove', onMove);
       window.addEventListener('pointerup', onUp);
@@ -399,15 +454,23 @@ export function openCropEditor(dataUrl) {
       // Поворот на 90° в обе стороны (1.2.22): ↺ влево (против часовой), ↻ вправо (по часовой).
       // Рамка пересчитывается чистой функцией (rotateCropCW/CCW, тест+мутация), холст - тут.
       const rotate = (cw) => {
-        const nc = cw ? rotateCropCW(crop, base.width, base.height) : rotateCropCCW(crop, base.width, base.height);
-        const rot = document.createElement('canvas');
-        const rd = rotateDims(base.width, base.height);
-        rot.width = rd.w; rot.height = rd.h;
-        const ctx = rot.getContext('2d');
-        if (cw) { ctx.translate(rd.w, 0); ctx.rotate(Math.PI / 2); }    // 90° по часовой
-        else { ctx.translate(0, rd.h); ctx.rotate(-Math.PI / 2); }       // 90° против часовой
-        ctx.drawImage(base, 0, 0);
-        base = rot; crop = nc; draw();
+        drag = null;
+        crop = cw ? rotateCropCW(crop, view.w, view.h) : rotateCropCCW(crop, view.w, view.h);
+        turns = (turns + (cw ? 1 : 3)) % 4;
+        view = straightenPlan(base.width, base.height, turns, angle); draw();
+      };
+      const slider = m.querySelector('.crop-angle');
+      const updateAngle = () => {
+        drag = null; angle = straightenAngle(slider.value);
+        slider.value = angle;
+        const label = (angle > 0 ? '+' : '') + String(angle).replace('.', ',') + '°';
+        m.querySelector('output').textContent = label;
+        slider.setAttribute('aria-valuetext', label);
+        view = straightenPlan(base.width, base.height, turns, angle); draw();
+      };
+      slider.oninput = updateAngle;
+      m.querySelector('.crop-reset').onclick = () => {
+        turns = 0; slider.value = 0; crop = defaultCrop(base.width, base.height); updateAngle();
       };
       m.querySelector('.crop-rotate-ccw').onclick = () => rotate(false);
       m.querySelector('.crop-rotate-cw').onclick = () => rotate(true);
@@ -416,17 +479,28 @@ export function openCropEditor(dataUrl) {
         window.removeEventListener('pointermove', onMove);
         window.removeEventListener('pointerup', onUp);
         window.removeEventListener('pointercancel', onUp);
+        window.removeEventListener('resize', draw);
+        window.removeEventListener('seyf:locking', cancel);
+        window.removeEventListener('pagehide', cancel);
+        closed = true; base.width = base.height = canvas.width = canvas.height = 0;
         unbind(); back.remove();
       };
-      const unbind = bindClose(back, () => { cleanup(); resolve(null); });
-      m.querySelector('.crop-cancel').onclick = () => { cleanup(); resolve(null); };
+      dispose = cleanup;
+      const unbind = bindClose(back, cancel);
+      m.querySelector('.crop-cancel').onclick = cancel;
       m.querySelector('.crop-done').onclick = () => {
-        const plan = cropCanvasPlan(crop, base.width, base.height, MAX_IMAGE_DIM);
+        if (closed) return;
+        const plan = cropCanvasPlan(crop, view.w, view.h, MAX_IMAGE_DIM);
         const out = document.createElement('canvas');
         out.width = plan.canvasW; out.height = plan.canvasH;
-        out.getContext('2d').drawImage(base, plan.sx, plan.sy, plan.sw, plan.sh, plan.dx, plan.dy, plan.dw, plan.dh);
         let url = '';
-        try { url = out.toDataURL('image/jpeg', JPEG_QUALITY); } catch (e) { url = ''; }
+        try {
+          const ctx = out.getContext('2d');
+          ctx.scale(plan.canvasW / plan.sw, plan.canvasH / plan.sh);
+          ctx.translate(-plan.sx, -plan.sy); render(ctx);
+          url = out.toDataURL('image/jpeg', JPEG_QUALITY);
+        } catch (e) { url = ''; }
+        out.width = out.height = 0;
         cleanup();
         if (!/^data:image\/[a-z]+;base64,./.test(url)) { broken(); return; }   // canvas не создался (C8)
         resolve(url);
@@ -434,6 +508,7 @@ export function openCropEditor(dataUrl) {
 
       document.body.appendChild(back);
       // сцена должна иметь ширину до первого draw
+      window.addEventListener('resize', draw);
       requestAnimationFrame(draw);
     };
     img.src = dataUrl;

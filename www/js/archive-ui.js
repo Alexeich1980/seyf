@@ -5,7 +5,7 @@
 // БЕСПЛАТНО в любой версии и без лимитов: окна гейта/покупки отсюда не зовутся (заслон archive-133).
 import * as A from './archive.js';
 import { icon } from './icons.js';
-import { generatePassphrase } from './generator.js';
+import { generateArchivePassword } from './password-tools.js';
 
 let D = null;
 export function initArchiveUI(deps) { D = deps; }
@@ -293,35 +293,57 @@ export function openArchive() {
       <p class="arc-err" role="alert"></p>
       <div class="modal-actions"><button type="button" class="cancel">Отмена</button><button type="button" class="save arc-mkfile">${esc(A.FILE_PW.button)}</button></div>`;
     const p1 = d.querySelector('.arc-pw1'), p2 = d.querySelector('.arc-pw2'), err = d.querySelector('.arc-err'), ok = d.querySelector('.arc-mkfile');
-    let busy = false;
-    const done = () => { document.removeEventListener('keydown', k2, true); bk.remove(); };
+    const originalVault = vault();
+    let busy = false, closed = false, generatedPassword = null;
+    const alive = () => !closed && bk.isConnected && vault() === originalVault;
+    const done = () => {
+      if (closed) return;
+      closed = true; generatedPassword = null; p1.value = ''; p2.value = '';
+      document.removeEventListener('keydown', k2, true);
+      window.removeEventListener('seyf:locking', done);
+      observer.disconnect(); bk.remove();
+    };
+    const observer = new MutationObserver(() => { if (!bk.isConnected) done(); });
+    window.addEventListener('seyf:locking', done);
+    observer.observe(document.body, { childList: true });
+    // Any user edit revokes provenance, even if the original text is later restored.
+    p1.addEventListener('input', () => { generatedPassword = null; err.textContent = ''; });
+    p2.addEventListener('input', () => { generatedPassword = null; err.textContent = ''; });
     const k2 = (e) => { if (e.key === 'Escape' && D.isTopModal(bk) && !busy) { e.stopPropagation(); done(); } };
     const run = async () => {
-      if (busy) return;
+      if (busy || !alive()) return;
       const pw = p1.value;
-      const problem = A.filePasswordProblem(pw, p2.value);
+      const problem = A.filePasswordProblem(pw, p2.value, { generatedPassword });
       if (problem) { err.textContent = problem; try { ok.scrollIntoView({ block: 'nearest' }); } catch (e) {} return; }
       busy = true; ok.disabled = true; err.textContent = 'Готовлю файл…';
       try {
-        if (await D.isMasterPassword(pw)) { err.textContent = A.FILE_PW_IS_MASTER; return; }
+        const isMaster = await D.isMasterPassword(pw);
+        if (!alive()) return;
+        if (isMaster) { err.textContent = A.FILE_PW_IS_MASTER; return; }
         const model = A.buildFullModel(arc(), vault(), { schema: D.schema, now: new Date() });
-        const html = A.buildEncryptedHtml(await A.encryptPayload(model, pw));
+        const encrypted = await A.encryptPayload(model, pw);
+        if (!alive()) return;
+        const html = A.buildEncryptedHtml(encrypted);
         p1.value = ''; p2.value = '';
-        done();
         const name = fileName('зашифрован');
-        const saved = await saveTextFile(name, html, 'text/html', null);
+        const saved = await saveTextFile(name, html, 'text/html', null, alive);
+        if (!alive()) return;
+        done();
         if (saved) D.dlgAlert(A.fileSavedText(name), A.ARCHIVE_TITLE);
       } catch (e) {
-        err.textContent = 'Не удалось подготовить файл. Попробуйте ещё раз.';
-      } finally { busy = false; ok.disabled = false; }
+        if (alive()) err.textContent = 'Не удалось подготовить файл. Попробуйте ещё раз.';
+      } finally { busy = false; if (alive()) ok.disabled = false; }
     };
     ok.onclick = run;
     d.querySelector('.arc-gen').onclick = () => {
-      if (busy) return;
-      const pw = generatePassphrase({ words: 4 });
+      if (busy || !alive()) return;
+      let pw;
+      try { pw = generateArchivePassword(); }
+      catch { err.textContent = 'Не удалось получить безопасные случайные данные.'; return; }
+      generatedPassword = pw;
       p1.type = 'text'; p2.type = 'text';     // показать: пароль нужно записать на бумаге
       p1.value = pw; p2.value = pw;
-      err.textContent = '';   // подсказка ниже уже говорит: запишите на бумаге и передайте отдельно (окно - без прокрутки на 360x640)
+      err.textContent = '6 слов выбраны случайно.';   // подсказка ниже уже говорит: запишите на бумаге и передайте отдельно (окно - без прокрутки на 360x640)
     };
     d.querySelector('.cancel').onclick = () => { if (!busy) done(); };
     D.closeOnBackdrop(bk, () => { if (!busy) done(); });
@@ -345,12 +367,14 @@ function fileName(kind) {
 
 // Сохранить файл: телефон - системное окно «Сохранить как» (SaveFile, как резервная копия);
 // браузер QA - showSaveFilePicker. Без сети. → true, если записано.
-async function saveTextFile(name, text, mime, okToast) {
+async function saveTextFile(name, text, mime, okToast, isCurrent = () => true) {
+  if (!isCurrent()) return false;
   const NP = window.NativePlugins;
   if (window.isNativeApp && window.isNativeApp() && NP && NP.SaveFile) {
     try {
       const base64 = btoa(unescape(encodeURIComponent(text)));
       const r = await D.withSystemWindow(() => NP.SaveFile.save({ name, mime, base64 }));
+      if (!isCurrent()) return false;
       if (r && r.ok) { if (okToast) D.toast(okToast); return true; }
       if (!(r && r.cancelled)) D.toast('Не удалось сохранить файл');
     } catch (e) { D.toast('Не удалось сохранить файл'); }
@@ -359,7 +383,13 @@ async function saveTextFile(name, text, mime, okToast) {
   if (window.showSaveFilePicker) {
     try {
       const h = await D.withSystemWindow(() => window.showSaveFilePicker({ suggestedName: name, types: [{ description: A.ARCHIVE_TITLE, accept: { [mime]: ['.html'] } }] }));
-      const w = await h.createWritable(); await w.write(text); await w.close();
+      if (!isCurrent()) return false;
+      const w = await h.createWritable();
+      if (!isCurrent()) { await w.abort(); return false; }
+      await w.write(text);
+      if (!isCurrent()) { await w.abort(); return false; }
+      await w.close();
+      if (!isCurrent()) return false;
       if (okToast) D.toast(okToast);
       return true;
     } catch (e) { if (!(e && e.name === 'AbortError')) D.toast('Не удалось сохранить файл'); return false; }

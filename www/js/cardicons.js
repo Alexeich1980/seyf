@@ -55,7 +55,7 @@ export const CARD_ICON_IDS = Object.keys(CARD_ICON_PATHS);
 
 // Иконка раздела по умолчанию, когда пользователь не выбрал свою (entry.icon пуст).
 const SECTION_DEFAULT = {
-  passwords: 'key', cards: 'card', wallets: 'wallet', seed: 'seed',
+  passwords: 'key', loyalty: 'gift', cards: 'card', wallets: 'wallet', seed: 'seed',
   documents: 'doc', notes: 'note', totp: 'twofa',
   contacts: 'user', wifi: 'wifi', requisites: 'bank',
 };

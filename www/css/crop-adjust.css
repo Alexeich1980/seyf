@@ -1,0 +1,11 @@
+.crop-editor { max-height: 94dvh; overflow-y: auto; }
+.crop-adjust { display: grid; grid-template-columns: 1fr auto; gap: 4px 16px; margin-top: 16px; align-items: center; }
+.crop-adjust label { color: var(--ink-strong); font-weight: 600; }
+.crop-adjust output { margin-left: 8px; font-variant-numeric: tabular-nums; }
+.crop-angle { grid-column: 1 / -1; grid-row: 2; width: 100%; min-height: 44px; margin: 0; accent-color: var(--teal); cursor: pointer; }
+.crop-reset { min-height: 44px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--elevated); color: var(--ink); font: inherit; cursor: pointer; }
+.crop-editor button:hover { border-color: var(--teal); }
+.crop-editor button:focus-visible, .crop-angle:focus-visible { outline: 2px solid var(--teal); outline-offset: 3px; }
+.crop-adjust-hint { color: var(--ink); font-size: 13px; line-height: 1.45; margin: 8px 0; }
+.crop-grid { position: absolute; inset: 0; pointer-events: none; background-image: linear-gradient(to right, transparent calc(100% - 1px), rgba(255,255,255,.7) 0), linear-gradient(to bottom, transparent calc(100% - 1px), rgba(255,255,255,.7) 0); background-size: 33.333% 33.333%; }
+.crop-editor .modal-actions { display: grid; grid-template-columns: 1fr 1fr; }
